@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
@@ -30,6 +31,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var preStreamDiscoveryChannel: ControlChannel? = null
+    private var lastServiceStartTimeMs = 0L
     private val handler = Handler(Looper.getMainLooper())
 
     private var localRev = 1
@@ -165,6 +167,9 @@ class MainActivity : AppCompatActivity() {
 
     @Synchronized
     private fun startPreStreamDiscoveryIfNeeded() {
+        if (SystemClock.elapsedRealtime() - lastServiceStartTimeMs < 2000L || AudioStreamService.activeControlChannel != null) {
+            return
+        }
         if (!AudioStreamService.isStreaming && !AudioStreamService.isMicStreaming && preStreamDiscoveryChannel == null) {
             preStreamDiscoveryChannel = ControlChannel(
                 audioPort = 5004,
@@ -205,6 +210,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            // Adjust ONLY the phone's hardware media volume (sets the 100% baseline for PC relative volume)
             val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) AudioManager.ADJUST_LOWER else AudioManager.ADJUST_RAISE
             am?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
@@ -310,7 +316,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.spinnerBitrate.adapter = bitrateAdapter
-        binding.spinnerBitrate.setSelection(5) // 128 Kbps default
+        binding.spinnerBitrate.setSelection(7) // 192 Kbps studio default
 
         val playerBitrateAdapter = object : ArrayAdapter<String>(
             this,
@@ -335,11 +341,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.spPlayerBitrate.adapter = playerBitrateAdapter
-        binding.spPlayerBitrate.setSelection(5)
+        binding.spPlayerBitrate.setSelection(7)
 
         binding.spinnerBitrate.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (suppressSync) return
+                binding.rbProfileCustom.isChecked = true
                 if (binding.spPlayerBitrate.selectedItemPosition != position) {
                     suppressSync = true
                     binding.spPlayerBitrate.setSelection(position)
@@ -353,6 +360,7 @@ class MainActivity : AppCompatActivity() {
         binding.spPlayerBitrate.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (suppressSync) return
+                binding.rbProfileCustom.isChecked = true
                 if (binding.spinnerBitrate.selectedItemPosition != position) {
                     suppressSync = true
                     binding.spinnerBitrate.setSelection(position)
@@ -374,12 +382,15 @@ class MainActivity : AppCompatActivity() {
                 AudioNative.nativeSetTargetBufferMs(qVal)
                 binding.tvTargetBufferValue.text = "${qVal.toInt()} ms"
                 binding.rbBufCustom.isChecked = true
+                if (!suppressSync) binding.rbProfileCustom.isChecked = true
                 onLocalSettingChanged()
             }
         }
 
         // Buffer presets radio group
         binding.rgBufferMode.setOnCheckedChangeListener { _, checkedId ->
+            if (suppressSync) return@setOnCheckedChangeListener
+            binding.rbProfileCustom.isChecked = true
             when (checkedId) {
                 R.id.rbBufLow -> {
                     AudioNative.nativeSetTargetBufferMs(20f)
@@ -409,6 +420,71 @@ class MainActivity : AppCompatActivity() {
             onLocalSettingChanged()
         }
 
+        // Audio Profile / Focus radio group
+        binding.rgAudioProfile.setOnCheckedChangeListener { _, checkedId ->
+            if (suppressSync) return@setOnCheckedChangeListener
+            when (checkedId) {
+                R.id.rbProfileQuality -> {
+                    suppressSync = true
+                    try {
+                        binding.rbCodecOpus.isChecked = true
+                        binding.rbPlayerCodecOpus.isChecked = true
+                        val idx = bitrateValues.indexOf("256")
+                        if (idx >= 0) {
+                            binding.spinnerBitrate.setSelection(idx)
+                            binding.spPlayerBitrate.setSelection(idx)
+                        }
+                        binding.rbBufHigh.isChecked = true
+                        binding.sliderTargetBuffer.value = quantizeTarget(80f)
+                        binding.tvTargetBufferValue.text = "80 ms"
+                        AudioNative.nativeSetTargetBufferMs(80f)
+                        AudioNative.nativeSetAutoMode(false)
+                    } finally {
+                        suppressSync = false
+                    }
+                }
+                R.id.rbProfileGaming -> {
+                    suppressSync = true
+                    try {
+                        binding.rbCodecOpus.isChecked = true
+                        binding.rbPlayerCodecOpus.isChecked = true
+                        val idx = bitrateValues.indexOf("128")
+                        if (idx >= 0) {
+                            binding.spinnerBitrate.setSelection(idx)
+                            binding.spPlayerBitrate.setSelection(idx)
+                        }
+                        binding.rbBufLow.isChecked = true
+                        binding.sliderTargetBuffer.value = quantizeTarget(20f)
+                        binding.tvTargetBufferValue.text = "20 ms"
+                        AudioNative.nativeSetTargetBufferMs(20f)
+                        AudioNative.nativeSetAutoMode(false)
+                    } finally {
+                        suppressSync = false
+                    }
+                }
+                R.id.rbProfileBalanced -> {
+                    suppressSync = true
+                    try {
+                        binding.rbCodecOpus.isChecked = true
+                        binding.rbPlayerCodecOpus.isChecked = true
+                        val idx = bitrateValues.indexOf("192")
+                        if (idx >= 0) {
+                            binding.spinnerBitrate.setSelection(idx)
+                            binding.spPlayerBitrate.setSelection(idx)
+                        }
+                        binding.rbBufAuto.isChecked = true
+                        binding.sliderTargetBuffer.value = quantizeTarget(30f)
+                        binding.tvTargetBufferValue.text = "30 ms"
+                        AudioNative.nativeSetTargetBufferMs(30f)
+                        AudioNative.nativeSetAutoMode(true)
+                    } finally {
+                        suppressSync = false
+                    }
+                }
+            }
+            onLocalSettingChanged()
+        }
+
         // Gain slider & Mute
         try {
             binding.sliderGain.value = quantizeGain(AudioNative.nativeGetVolumeGain())
@@ -416,7 +492,8 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
         binding.sliderGain.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
-                AudioNative.nativeSetVolumeGain(value)
+                // PC UDPSender applies the stream gain relative to phone's hardware volume
+                AudioNative.nativeSetVolumeGain(1.0f)
                 binding.tvGainValue.text = "${(value * 100).toInt()}%"
                 onLocalSettingChanged()
             }
@@ -432,6 +509,7 @@ class MainActivity : AppCompatActivity() {
         // Codec selection synced across Player tab and Settings tab
         binding.rgPlayerCodec.setOnCheckedChangeListener { _, checkedId ->
             if (suppressSync) return@setOnCheckedChangeListener
+            binding.rbProfileCustom.isChecked = true
             suppressSync = true
             if (checkedId == R.id.rbPlayerCodecOpus) {
                 binding.rbCodecOpus.isChecked = true
@@ -444,6 +522,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.rgCodec.setOnCheckedChangeListener { _, checkedId ->
             if (suppressSync) return@setOnCheckedChangeListener
+            binding.rbProfileCustom.isChecked = true
             suppressSync = true
             if (checkedId == R.id.rbCodecOpus) {
                 binding.rbPlayerCodecOpus.isChecked = true
@@ -455,14 +534,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Speaker routing & Codec selection
-        binding.rgOutputTargets.setOnCheckedChangeListener { _, _ -> onLocalSettingChanged() }
+        binding.rgOutputTargets.setOnCheckedChangeListener { _, checkedId ->
+            if (suppressSync) return@setOnCheckedChangeListener
+            if (checkedId == R.id.rbTargetBoth) {
+                binding.rbProfileQuality.isChecked = true
+                suppressSync = true
+                try {
+                    binding.sliderTargetBuffer.value = quantizeTarget(60f)
+                    binding.tvTargetBufferValue.text = "60 ms"
+                    AudioNative.nativeSetTargetBufferMs(60f)
+                    AudioNative.nativeSetAutoMode(false)
+                } finally {
+                    suppressSync = false
+                }
+            }
+            onLocalSettingChanged()
+        }
 
         // Role & Advanced settings listeners
-        binding.rgServerRole.setOnCheckedChangeListener { _, _ -> onLocalSettingChanged() }
-        binding.rgOutputEngine.setOnCheckedChangeListener { _, _ -> onLocalSettingChanged() }
-        binding.switchAudioFx.setOnCheckedChangeListener { _, _ -> onLocalSettingChanged() }
-        binding.rgExclusiveMode.setOnCheckedChangeListener { _, _ -> onLocalSettingChanged() }
-        binding.switchHeadsetDisconnect.setOnCheckedChangeListener { _, _ -> onLocalSettingChanged() }
+        binding.rgServerRole.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
+        binding.rgOutputEngine.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
+        binding.switchAudioFx.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
+        binding.rgExclusiveMode.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
+        binding.switchHeadsetDisconnect.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
 
         // Help button
         binding.btnHelp.setOnClickListener { showHelpDialog() }
@@ -476,6 +570,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 startService(intent)
             } else {
+                lastServiceStartTimeMs = SystemClock.elapsedRealtime()
                 stopPreStreamDiscovery()
                 val intent = Intent(this, AudioStreamService::class.java).apply {
                     action = AudioStreamService.ACTION_START
@@ -527,17 +622,35 @@ class MainActivity : AppCompatActivity() {
         binding.tvSyncRev.text = "REV: $localRev"
         updateExpectedDelayUI()
 
+        val isPcOnly = (binding.rgOutputTargets.checkedRadioButtonId == R.id.rbTargetPc)
+        val userMuted = (binding.btnMuteToggle.text == "MUTED")
+        if (isPcOnly) {
+            AudioNative.nativeSetMuted(true)
+        } else {
+            AudioNative.nativeSetMuted(userMuted)
+        }
+
         val json = JSONObject().apply {
             put("type", "CONFIG_SYNC")
             put("rev", localRev)
             put("sync_id", syncId)
-            put("direction", if (binding.rbFullDuplex.isChecked) "FULL_DUPLEX" else "PC_TO_PHONE")
+            put("direction", when (binding.rgServerRole.checkedRadioButtonId) {
+                R.id.rbFullDuplex -> "FULL_DUPLEX"
+                R.id.rbMicOnly -> "PHONE_TO_PC"
+                else -> "PC_TO_PHONE"
+            })
             put("pc_source", "SYSTEM_AUDIO")
             put("phone_source", "MIC")
             put("output_targets", when (binding.rgOutputTargets.checkedRadioButtonId) {
                 R.id.rbTargetBoth -> "BOTH_SYNCED"
                 R.id.rbTargetPc -> "PC_ONLY"
                 else -> "PHONE_ONLY"
+            })
+            put("audio_profile", when (binding.rgAudioProfile.checkedRadioButtonId) {
+                R.id.rbProfileQuality -> "QUALITY"
+                R.id.rbProfileGaming -> "GAMING"
+                R.id.rbProfileBalanced -> "BALANCED"
+                else -> "CUSTOM"
             })
             put("codec", if (binding.rbCodecOpus.isChecked || binding.rbPlayerCodecOpus.isChecked) 1 else 0)
             put("opus_bitrate_kbps", bitrateValues.getOrElse(binding.spinnerBitrate.selectedItemPosition) { "128" }.toInt())
@@ -551,7 +664,7 @@ class MainActivity : AppCompatActivity() {
             put("custom_buffer_ms", binding.sliderTargetBuffer.value.toDouble())
             put("auto_buffer", binding.rbBufAuto.isChecked)
             put("volume_gain", binding.sliderGain.value.toDouble())
-            put("muted", AudioNative.nativeIsMuted())
+            put("muted", userMuted)
             put("device", ControlChannel.getPhoneModelName())
             put("audio_output_engine", if (binding.rbEngineAudioTrack.isChecked) "AUDIOTRACK_STANDARD" else "OBOE_LOW_LATENCY")
             put("enable_audio_effects", binding.switchAudioFx.isChecked)
@@ -615,18 +728,30 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     Log.w("PhoneSpeaker", "Could not set sliderGain value: ${e.message}")
                 }
-                AudioNative.nativeSetVolumeGain(g)
+                AudioNative.nativeSetVolumeGain(1.0f)
             }
             if (json.has("muted")) {
                 val m = json.getBoolean("muted")
                 AudioNative.nativeSetMuted(m)
                 binding.btnMuteToggle.text = if (m) "MUTED" else "MUTE"
             }
+            if (json.has("audio_profile")) {
+                when (json.getString("audio_profile")) {
+                    "QUALITY" -> binding.rbProfileQuality.isChecked = true
+                    "GAMING" -> binding.rbProfileGaming.isChecked = true
+                    "BALANCED" -> binding.rbProfileBalanced.isChecked = true
+                    else -> binding.rbProfileCustom.isChecked = true
+                }
+            }
             if (json.has("output_targets")) {
-                when (json.getString("output_targets")) {
+                val targets = json.getString("output_targets")
+                when (targets) {
                     "BOTH_SYNCED" -> binding.rbTargetBoth.isChecked = true
                     "PC_ONLY" -> binding.rbTargetPc.isChecked = true
                     else -> binding.rbTargetPhone.isChecked = true
+                }
+                if (targets == "PC_ONLY") {
+                    AudioNative.nativeSetMuted(true)
                 }
             }
             if (json.has("codec")) {
@@ -647,10 +772,10 @@ class MainActivity : AppCompatActivity() {
             updateExpectedDelayUI()
 
             if (json.has("direction")) {
-                if (json.getString("direction") == "FULL_DUPLEX") {
-                    binding.rbFullDuplex.isChecked = true
-                } else {
-                    binding.rbMicOnly.isChecked = true
+                when (json.getString("direction")) {
+                    "FULL_DUPLEX" -> binding.rbFullDuplex.isChecked = true
+                    "PHONE_TO_PC" -> binding.rbMicOnly.isChecked = true
+                    else -> binding.rbSpeakerOnly.isChecked = true
                 }
             }
             if (json.has("audio_output_engine")) {
@@ -696,6 +821,7 @@ class MainActivity : AppCompatActivity() {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 201)
                 return
             }
+            lastServiceStartTimeMs = SystemClock.elapsedRealtime()
             val discoveredIp = binding.etPcIp.text.toString().trim().ifEmpty {
                 preStreamDiscoveryChannel?.getActivePcIp()
                     ?: AudioStreamService.activeControlChannel?.getActivePcIp()
@@ -776,16 +902,17 @@ class MainActivity : AppCompatActivity() {
             binding.tvCodec.text = if (stats.codec == 1) "Opus" else "PCM16"
 
             // Auto-update connected PC IP if empty
-            val pcIp = AudioStreamService.activeControlChannel?.getActivePcIp()
+            val rawPcIp = AudioStreamService.activeControlChannel?.getActivePcIp()
                 ?: preStreamDiscoveryChannel?.getActivePcIp()
                 ?: AudioNative.nativeGetSenderIp()
+            val isOwn = (AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel)?.isOwnLocalIp(rawPcIp) == true
+            val pcIp = if (!isOwn) rawPcIp else null
+            if (!pcIp.isNullOrBlank() && (binding.etPcIp.text.isNullOrBlank() || (AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel)?.isOwnLocalIp(binding.etPcIp.text.toString()) == true)) {
+                binding.etPcIp.setText(pcIp)
+            }
             val pcName = AudioStreamService.activeControlChannel?.getActivePcName()
                 ?: preStreamDiscoveryChannel?.getActivePcName()
                 ?: "PC"
-
-            if (!pcIp.isNullOrBlank() && binding.etPcIp.text.isNullOrBlank()) {
-                binding.etPcIp.setText(pcIp)
-            }
 
             binding.tvConnectedDeviceTitle.text = if (!pcIp.isNullOrBlank()) "💻 Connected to: $pcName ($pcIp)" else "💻 Waiting for PC connection..."
             binding.tvConnectedDeviceSub.text = "📱 This Phone: ${ControlChannel.getPhoneModelName()}"

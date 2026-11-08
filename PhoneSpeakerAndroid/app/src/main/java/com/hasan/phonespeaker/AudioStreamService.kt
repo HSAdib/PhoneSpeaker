@@ -66,14 +66,41 @@ class AudioStreamService : Service() {
     private var stopOnHeadsetDisconnect = false
     private var audioOutputEngine = "OBOE_LOW_LATENCY"
     private var enableAudioEffects = false
+    private var userMuted = false
+    private var outputTargets = "PHONE_ONLY"
+    private var pausedByHeadset = false
+    private var pausedByFocus = false
+    private var savedVolumeGain = 1.0f
     private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
+
+    private fun applyEffectiveMuteAndGain() {
+        val effectiveMute = userMuted || (outputTargets == "PC_ONLY") || pausedByHeadset || pausedByFocus
+        AudioNative.nativeSetMuted(effectiveMute)
+    }
 
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                if (stopOnHeadsetDisconnect && isStreaming) {
-                    Log.i(TAG, "Headset disconnected — pausing stream")
-                    AudioNative.nativeSetMuted(true)
+            when (intent?.action) {
+                AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
+                    if (stopOnHeadsetDisconnect && isStreaming) {
+                        Log.i(TAG, "Headset disconnected — pausing stream")
+                        pausedByHeadset = true
+                        applyEffectiveMuteAndGain()
+                        notifyStateChanged()
+                    }
+                }
+                Intent.ACTION_HEADSET_PLUG -> {
+                    val state = intent.getIntExtra("state", -1)
+                    if (state == 0 && stopOnHeadsetDisconnect && isStreaming) {
+                        pausedByHeadset = true
+                        applyEffectiveMuteAndGain()
+                        notifyStateChanged()
+                    } else if (state == 1 && pausedByHeadset) {
+                        Log.i(TAG, "Headset reconnected — resuming stream")
+                        pausedByHeadset = false
+                        applyEffectiveMuteAndGain()
+                        notifyStateChanged()
+                    }
                 }
             }
         }
@@ -84,10 +111,14 @@ class AudioStreamService : Service() {
         Log.d(TAG, "AudioStreamService.onCreate")
         createNotificationChannel()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val noisyFilter = IntentFilter().apply {
+            addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            addAction(Intent.ACTION_HEADSET_PLUG)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), Context.RECEIVER_EXPORTED)
+            registerReceiver(noisyReceiver, noisyFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            registerReceiver(noisyReceiver, noisyFilter)
         }
     }
 
@@ -100,8 +131,14 @@ class AudioStreamService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.d(TAG, "AudioStreamService.onStartCommand action=$action")
+        if (action == null) {
+            if (!isStreaming && !isMicStreaming) {
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
 
-        val targetIp = intent?.getStringExtra(EXTRA_TARGET_IP)
+        val targetIp = intent.getStringExtra(EXTRA_TARGET_IP)
 
         when (action) {
             ACTION_STOP -> {
@@ -110,14 +147,14 @@ class AudioStreamService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                intent?.getStringExtra(EXTRA_AUDIO_ENGINE)?.let { audioOutputEngine = it }
-                if (intent != null && intent.hasExtra(EXTRA_AUDIO_FX)) {
+                intent.getStringExtra(EXTRA_AUDIO_ENGINE)?.let { audioOutputEngine = it }
+                if (intent.hasExtra(EXTRA_AUDIO_FX)) {
                     enableAudioEffects = intent.getBooleanExtra(EXTRA_AUDIO_FX, false)
                 }
                 if (!isStreaming) startAudioPlayer()
             }
             ACTION_START_MIC -> {
-                val enableFx = intent?.getBooleanExtra(EXTRA_MIC_FX, true) ?: true
+                val enableFx = intent.getBooleanExtra(EXTRA_MIC_FX, true)
                 startMicServer(targetIp, enableFx)
             }
             ACTION_STOP_MIC -> {
@@ -154,7 +191,9 @@ class AudioStreamService : Service() {
 
     private fun startAudioPlayer() {
         Log.d(TAG, "startAudioPlayer entry")
-        AudioNative.nativeSetMuted(false)
+        pausedByHeadset = false
+        pausedByFocus = false
+        applyEffectiveMuteAndGain()
         isStreaming = true
         updateForegroundState()
 
@@ -300,11 +339,21 @@ class AudioStreamService : Service() {
                 AudioNative.nativeSetAutoMode(json.getBoolean("auto_buffer"))
             }
             if (json.has("volume_gain")) {
-                AudioNative.nativeSetVolumeGain(json.getDouble("volume_gain").toFloat())
+                savedVolumeGain = json.getDouble("volume_gain").toFloat().coerceIn(0f, 2f)
+                // Stream is already scaled by PC UDPSender relative to phone hardware volume
+                AudioNative.nativeSetVolumeGain(1.0f)
             }
             if (json.has("muted")) {
-                AudioNative.nativeSetMuted(json.getBoolean("muted"))
+                userMuted = json.getBoolean("muted")
+                if (!userMuted) {
+                    pausedByHeadset = false
+                    pausedByFocus = false
+                }
             }
+            if (json.has("output_targets")) {
+                outputTargets = json.optString("output_targets", "PHONE_ONLY")
+            }
+            applyEffectiveMuteAndGain()
             if (json.has("exclusive_audio_mode")) {
                 exclusiveAudioMode = json.getString("exclusive_audio_mode")
             }
@@ -392,16 +441,26 @@ class AudioStreamService : Service() {
                     try {
                         when (focusChange) {
                             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                                AudioNative.nativeSetMuted(true)
-                            }
-                            AudioManager.AUDIOFOCUS_GAIN,
-                            AudioManager.AUDIOFOCUS_LOSS,
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                                if (exclusiveAudioMode == "EXCLUSIVE" && focusChange == AudioManager.AUDIOFOCUS_LOSS) {
-                                    AudioNative.nativeSetMuted(true)
-                                } else {
-                                    AudioNative.nativeSetMuted(false)
+                                if (exclusiveAudioMode == "EXCLUSIVE") {
+                                    pausedByFocus = true
+                                    applyEffectiveMuteAndGain()
                                 }
+                            }
+                            AudioManager.AUDIOFOCUS_LOSS -> {
+                                if (exclusiveAudioMode == "EXCLUSIVE") {
+                                    pausedByFocus = true
+                                    applyEffectiveMuteAndGain()
+                                }
+                            }
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                                if (exclusiveAudioMode == "EXCLUSIVE") {
+                                    AudioNative.nativeSetVolumeGain(0.25f)
+                                }
+                            }
+                            AudioManager.AUDIOFOCUS_GAIN -> {
+                                pausedByFocus = false
+                                AudioNative.nativeSetVolumeGain(1.0f)
+                                applyEffectiveMuteAndGain()
                             }
                         }
                     } catch (e: Exception) {

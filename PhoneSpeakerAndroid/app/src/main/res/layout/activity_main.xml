@@ -215,6 +215,65 @@
                 android:textStyle="bold"
                 android:fontFamily="monospace" />
 
+            <!-- Audio Focus / Profiles -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="SOUND MODE (QUALITY vs LOW DELAY):"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgAudioProfile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbProfileBalanced"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Balanced (Auto)"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbProfileGaming"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Gaming"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbProfileQuality"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Best Quality"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbProfileCustom"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Custom"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
             <!-- Codec & Bitrate Quick Controls -->
             <TextView
                 android:layout_width="wrap_content"
@@ -564,11 +623,19 @@
                 android:layout_marginTop="4dp">
 
                 <RadioButton
-                    android:id="@+id/rbMicOnly"
+                    android:id="@+id/rbSpeakerOnly"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="Microphone (Stream phone mic to PC)"
+                    android:text="Speaker Only (Stream PC audio to Phone)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbMicOnly"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Microphone Only (Stream Phone mic to PC)"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
 

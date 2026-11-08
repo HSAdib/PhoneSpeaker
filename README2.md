@@ -24,6 +24,12 @@ For a quick Linux installation, run:
 curl -sSL https://raw.githubusercontent.com/HSAdib/PhoneSpeaker/main/install_linux.sh | bash
 ```
 
+To completely uninstall PhoneSpeaker on Linux, run:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/HSAdib/PhoneSpeaker/main/install_linux.sh | bash -s -- --uninstall
+```
+
 On Windows, the included `install_apk.ps1` helper can install the Android app to a connected phone. See [README.md](README.md) for detailed installation instructions, source builds, and platform-specific commands.
 
 ## Quick start

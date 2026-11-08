@@ -14,8 +14,8 @@ import kotlin.concurrent.thread
 class ControlChannel(
     private val audioPort: Int = 5004,
     private val controlPort: Int = 5005,
-    private val onConfigSyncReceived: ((JSONObject) -> Unit)? = null,
-    private val onMicControlReceived: ((Boolean) -> Unit)? = null
+    @Volatile var onConfigSyncReceived: ((JSONObject) -> Unit)? = null,
+    @Volatile var onMicControlReceived: ((Boolean) -> Unit)? = null
 ) {
     private val TAG = "ControlChannel"
     @Volatile
@@ -35,12 +35,25 @@ class ControlChannel(
     private var activePcIp: String? = null
     @Volatile
     private var activePcName: String = "PC"
+    @Volatile
+    private var lastPingPcTs: Long = 0L
+    @Volatile
+    private var lastPingRxElapsedMs: Long = 0L
 
     fun getActivePcIp(): String? = activePcIp
     fun getActivePcName(): String = activePcName
 
     fun setActivePcIp(ip: String?) {
-        activePcIp = ip
+        if (!ip.isNullOrBlank() && !isOwnLocalIp(ip)) {
+            activePcIp = ip.trim()
+        }
+    }
+
+    fun isOwnLocalIp(ip: String?): Boolean {
+        if (ip.isNullOrBlank()) return false
+        val trimmed = ip.trim()
+        if (trimmed == "127.0.0.1" || trimmed == "0.0.0.0" || trimmed == "255.255.255.255") return true
+        return getLocalIpv4Addresses().contains(trimmed)
     }
 
     @Synchronized
@@ -85,11 +98,14 @@ class ControlChannel(
         listener?.interrupt()
         beacon?.interrupt()
         stats?.interrupt()
+        if (listener != null && listener != Thread.currentThread()) {
+            try { listener.join(150) } catch (_: Exception) {}
+        }
     }
 
     fun sendConfigSync(json: JSONObject, targetIp: String? = null) {
-        val dest = targetIp ?: activePcIp
-        val senderIp = AudioNative.nativeGetSenderIp()
+        val dest = targetIp?.takeIf { !isOwnLocalIp(it) } ?: activePcIp
+        val senderIp = AudioNative.nativeGetSenderIp()?.takeIf { !isOwnLocalIp(it) }
         thread(name = "ConfigSyncSender", isDaemon = true) {
             try {
                 val data = json.toString().toByteArray(Charsets.UTF_8)
@@ -128,7 +144,7 @@ class ControlChannel(
                lower.startsWith("p2p")
     }
 
-    private fun getLocalIpv4Addresses(): List<String> {
+    fun getLocalIpv4Addresses(): List<String> {
         val prioritized = mutableListOf<String>()
         val fallback = mutableListOf<String>()
         try {
@@ -175,28 +191,53 @@ class ControlChannel(
                 while (isRunning) {
                     val packet = DatagramPacket(buffer, buffer.size)
                     sock.receive(packet)
-                    val senderIp = packet.address.hostAddress
-                    if (!senderIp.isNullOrBlank()) {
-                        activePcIp = senderIp
+                    val senderIp = packet.address.hostAddress ?: continue
+
+                    // CRITICAL FIX: Ignore packets sent by this phone's own IP addresses!
+                    if (isOwnLocalIp(senderIp)) {
+                        continue
                     }
 
                     try {
                         val text = String(packet.data, packet.offset, packet.length, Charsets.UTF_8)
                         val json = JSONObject(text)
                         val msgType = json.optString("type")
-                        val pcName = json.optString("pc_name", "")
-                        if (pcName.isNotBlank()) {
-                            activePcName = pcName
+
+                        // Never treat a phone BEACON as a PC packet
+                        if (msgType == "BEACON" || msgType == "STATS") {
+                            continue
                         }
+
+                        if (msgType == "PING") {
+                            val pcTs = json.optLong("pc_ts", 0L)
+                            if (pcTs > 0) {
+                                lastPingPcTs = pcTs
+                                lastPingRxElapsedMs = android.os.SystemClock.elapsedRealtime()
+                            }
+                            continue
+                        }
+
                         if (msgType == "PC_ANNOUNCE") {
                             activePcIp = senderIp
                             AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
+                            val pcName = json.optString("pc_name", "")
+                            if (pcName.isNotBlank()) activePcName = pcName
                             Log.i(TAG, "Discovered active PC IP via PC_ANNOUNCE: $senderIp ($activePcName)")
                         } else if (msgType == "CONFIG_SYNC") {
-                            onConfigSyncReceived?.invoke(json)
+                            if (activePcIp == null || senderIp == activePcIp || json.has("pc_name")) {
+                                activePcIp = senderIp
+                                AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
+                                val pcName = json.optString("pc_name", "")
+                                if (pcName.isNotBlank()) activePcName = pcName
+                                onConfigSyncReceived?.invoke(json)
+                            }
                         } else if (msgType == "MIC_CONTROL") {
-                            val wantActive = json.optBoolean("active", false)
-                            onMicControlReceived?.invoke(wantActive)
+                            if (activePcIp == null || senderIp == activePcIp || json.optString("app") == "PhoneSpeakerPC") {
+                                activePcIp = senderIp
+                                AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
+                                val wantActive = json.optBoolean("active", false)
+                                onMicControlReceived?.invoke(wantActive)
+                            }
                         }
                     } catch (_: Exception) {}
                 }
@@ -254,11 +295,20 @@ class ControlChannel(
     private fun startStatsSender() {
         statsThread = thread(name = "StatsSender", isDaemon = true) {
             try {
-                val sock = DatagramSocket()
+                val sock = DatagramSocket().apply { broadcast = true }
                 statsSocket = sock
                 while (isRunning) {
-                    Thread.sleep(500)
-                    val targetIp = activePcIp ?: AudioNative.nativeGetSenderIp() ?: continue
+                    Thread.sleep(300)
+                    val targetIp = activePcIp?.takeIf { !isOwnLocalIp(it) }
+                        ?: AudioNative.nativeGetSenderIp()?.takeIf { !isOwnLocalIp(it) }
+
+                    val pingTs = lastPingPcTs
+                    val pingRx = lastPingRxElapsedMs
+                    val holdMs = if (pingTs > 0L && pingRx > 0L) {
+                        (android.os.SystemClock.elapsedRealtime() - pingRx).coerceAtLeast(0L)
+                    } else {
+                        0L
+                    }
 
                     val stats = AudioNative.getStats()
                     val json = JSONObject().apply {
@@ -274,11 +324,30 @@ class ControlChannel(
                         put("device", getPhoneModelName())
                         put("mic_streaming", AudioStreamService.isMicStreaming)
                         put("mic_pps", AudioStreamService.micStreamerInstance?.txPps?.get() ?: 0)
+                        if (pingTs > 0L) {
+                            put("echo_pc_ts", pingTs)
+                            put("hold_ms", holdMs)
+                        }
                     }
 
                     val data = json.toString().toByteArray(Charsets.UTF_8)
-                    val dest = InetAddress.getByName(targetIp)
-                    sock.send(DatagramPacket(data, data.size, dest, controlPort))
+                    if (!targetIp.isNullOrBlank()) {
+                        try {
+                            val dest = InetAddress.getByName(targetIp)
+                            sock.send(DatagramPacket(data, data.size, dest, controlPort))
+                        } catch (_: Exception) {}
+                    } else if (AudioStreamService.isMicStreaming || AudioStreamService.isStreaming) {
+                        // Also send to subnet broadcast if PC IP is not yet known
+                        for (ip in getLocalIpv4Addresses()) {
+                            val parts = ip.split(".")
+                            if (parts.size == 4) {
+                                try {
+                                    val bcast = InetAddress.getByName("${parts[0]}.${parts[1]}.${parts[2]}.255")
+                                    sock.send(DatagramPacket(data, data.size, bcast, controlPort))
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 if (isRunning) Log.w(TAG, "Stats sender error: ${e.message}")

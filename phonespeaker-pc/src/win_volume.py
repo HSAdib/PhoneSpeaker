@@ -85,7 +85,14 @@ def _get_cached_endpoint_volume() -> Optional[c_void_p]:
 
     try:
         ole32 = ctypes.windll.ole32
-        ole32.CoInitialize(None)
+        ole32.CoInitializeEx.argtypes = [c_void_p, c_uint]
+        ole32.CoInitializeEx.restype = HRESULT
+        ole32.CoInitializeEx(None, 2)  # COINIT_APARTMENTTHREADED
+
+        ole32.CoCreateInstance.argtypes = [
+            POINTER(GUID), c_void_p, c_uint, POINTER(GUID), POINTER(c_void_p)
+        ]
+        ole32.CoCreateInstance.restype = HRESULT
 
         enumerator = c_void_p()
         hr = ole32.CoCreateInstance(

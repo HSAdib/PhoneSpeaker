@@ -40,6 +40,7 @@ public:
 private:
     bool openAndStartOboeStream();
     void closeOboeStream();
+    void scheduleStreamReopen();
     void socketReceiverLoop();
 
     int mAudioPort{5004};
@@ -52,6 +53,8 @@ private:
     std::string mLastSenderIp;
 
     std::mutex mStreamMutex;
+    std::mutex mReopenMutex;
+    std::atomic<bool> mReopenPending{false};
     std::thread mReceiverThread;
     std::thread mReopenThread;
     std::shared_ptr<oboe::AudioStream> mAudioStream;

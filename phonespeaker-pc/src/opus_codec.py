@@ -88,9 +88,9 @@ class OpusEncoder:
         sample_rate: int = 48000,
         channels: int = 2,
         application: int = OPUS_APPLICATION_AUDIO,
-        bitrate: int = 160_000,
+        bitrate: int = 192_000,
         frame_ms: int = 5,
-        complexity: int = 5,
+        complexity: int = 10,
     ):
         self._lib: Optional[ctypes.CDLL] = None
         self._encoder = None
@@ -157,11 +157,11 @@ class OpusEncoder:
 
         # Apply settings
         self._ctl(OPUS_SET_BITRATE_REQUEST, bitrate)
-        self._ctl(OPUS_SET_COMPLEXITY_REQUEST, complexity)
+        self._ctl(OPUS_SET_COMPLEXITY_REQUEST, 10)
         self._ctl(OPUS_SET_INBAND_FEC_REQUEST, 1)
-        self._ctl(OPUS_SET_PACKET_LOSS_PERC_REQUEST, 10)
-        self._ctl(OPUS_SET_VBR_REQUEST, 0)        # CBR
-        self._ctl(OPUS_SET_VBR_CONSTRAINT_REQUEST, 1)  # constrained VBR (CBR mode)
+        self._ctl(OPUS_SET_PACKET_LOSS_PERC_REQUEST, 2)
+        self._ctl(OPUS_SET_VBR_REQUEST, 1)             # Enable VBR
+        self._ctl(OPUS_SET_VBR_CONSTRAINT_REQUEST, 1)  # Constrained VBR for consistent low-latency framing
         self._ctl(OPUS_SET_DTX_REQUEST, 0)
 
         logger.info(

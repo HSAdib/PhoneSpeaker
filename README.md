@@ -164,6 +164,16 @@ chmod +x PhoneSpeaker-v2-Linux-Installer.run
   phonespeaker
   ```
 
+#### Uninstalling on Linux:
+To completely remove **PhoneSpeaker v2.0 Studio**, its desktop icon, configuration files, and terminal command on any Linux distribution, run:
+```bash
+pkill -f "phonespeaker-pc/src/main.py" 2>/dev/null || true
+rm -rf ~/.local/opt/phonespeaker ~/.local/bin/phonespeaker ~/.local/share/applications/phonespeaker.desktop ~/.local/share/icons/phonespeaker.png ~/.config/PhoneSpeaker
+sudo rm -f /usr/local/bin/phonespeaker 2>/dev/null || true
+update-desktop-database ~/.local/share/applications 2>/dev/null || true
+```
+(Or run `curl -sSL https://raw.githubusercontent.com/HSAdib/PhoneSpeaker/main/install_linux.sh | bash -s -- --uninstall`).
+
 #### Linux Firewall (If Streaming is Blocked):
 - **Ubuntu / Mint / Debian (`ufw`):**
   ```bash

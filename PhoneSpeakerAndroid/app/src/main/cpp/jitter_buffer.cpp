@@ -49,7 +49,7 @@ void JitterBuffer::pushPacket(const AudioPacket& packet) {
     }
 
     mCurrentCodec = packet.header.codec;
-    mChannels = (packet.header.channels == 1) ? 1 : 2;
+    mChannels = 2; // Oboe output stream is always stereo (2 channels)
     if (packet.header.sample_rate_div100 > 0) {
         mSampleRate = packet.header.sample_rate_div100 * 100;
     }
@@ -162,9 +162,21 @@ void JitterBuffer::popNextPacketOrConceal() {
         : 0.0f;
     float totalQueuedMs = (mPacketMap.size() * mPacketDurationMs) + fifoMs;
 
-    // Soft anti-drift: only trim if excess exceeds target + 30ms
-    if (totalQueuedMs > (mTargetBufferMs + 30.0f) && mPacketMap.size() > 4) {
+    // Soft anti-drift: only trim if excess exceeds target + 50ms
+    if (totalQueuedMs > (mTargetBufferMs + 50.0f) && mPacketMap.size() > 4) {
         auto oldest = mPacketMap.begin();
+        if (oldest->second.header.codec != CODEC_PCM16 && !oldest->second.payload.empty()) {
+            int16_t discard_buf[960 * 2];
+            int dec = mOpusDecoder.decode(oldest->second.payload.data(), oldest->second.payload.size(), discard_buf, 960, false);
+            if (dec > 0) {
+                int total_samples = dec * mChannels;
+                if (mLastValidFrame.size() < static_cast<size_t>(total_samples)) {
+                    mLastValidFrame.resize(total_samples);
+                }
+                std::memcpy(mLastValidFrame.data(), discard_buf, total_samples * sizeof(int16_t));
+                mConsecutiveLosses = 1;
+            }
+        }
         mExpectedSeq = oldest->first + 1;
         mPacketMap.erase(oldest);
     }
@@ -184,17 +196,30 @@ void JitterBuffer::popNextPacketOrConceal() {
         size_t old_size = mPcmFifo.size();
         int total_samples = 0;
 
+        const int pktChannels = (pkt.header.channels == 1) ? 1 : 2;
+        mChannels = 2; // Oboe output stream is always stereo (2 channels)
+
         if (pkt.header.codec == CODEC_PCM16) {
-            int frame_count = pkt.payload.size() / (mChannels * sizeof(int16_t));
+            int frame_count = pkt.payload.size() / (pktChannels * sizeof(int16_t));
             if (frame_count <= 0) frame_count = 240;
             mLastFrameSamplesPerCh = frame_count;
             mPacketDurationMs = (frame_count * 1000.0f) / mSampleRate;
 
-            total_samples = frame_count * mChannels;
+            total_samples = frame_count * 2;
             mPcmFifo.resize(old_size + total_samples);
 
-            int copyBytes = std::min(static_cast<size_t>(total_samples * sizeof(int16_t)), pkt.payload.size());
-            std::memcpy(mPcmFifo.data() + old_size, pkt.payload.data(), copyBytes);
+            if (pktChannels == 2) {
+                int copyBytes = std::min(static_cast<size_t>(total_samples * sizeof(int16_t)), pkt.payload.size());
+                std::memcpy(mPcmFifo.data() + old_size, pkt.payload.data(), copyBytes);
+            } else {
+                const int16_t* monoPtr = reinterpret_cast<const int16_t*>(pkt.payload.data());
+                int16_t* stereoOut = mPcmFifo.data() + old_size;
+                int availMono = std::min(frame_count, static_cast<int>(pkt.payload.size() / sizeof(int16_t)));
+                for (int i = 0; i < availMono; i++) {
+                    stereoOut[i * 2] = monoPtr[i];
+                    stereoOut[i * 2 + 1] = monoPtr[i];
+                }
+            }
         } else {
             int max_frames = 960;
             int16_t decoded_buf[960 * 2];
@@ -203,11 +228,11 @@ void JitterBuffer::popNextPacketOrConceal() {
                 mLastFrameSamplesPerCh = decoded;
                 mPacketDurationMs = (decoded * 1000.0f) / mSampleRate;
 
-                total_samples = decoded * mChannels;
+                total_samples = decoded * 2;
                 mPcmFifo.resize(old_size + total_samples);
                 std::memcpy(mPcmFifo.data() + old_size, decoded_buf, total_samples * sizeof(int16_t));
             } else {
-                total_samples = mLastFrameSamplesPerCh * mChannels;
+                total_samples = mLastFrameSamplesPerCh * 2;
                 mPcmFifo.resize(old_size + total_samples, 0);
             }
         }

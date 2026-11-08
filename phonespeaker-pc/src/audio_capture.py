@@ -87,6 +87,7 @@ def convert_to_target(
     in_rate: int,
     in_channels: int,
     sample_format: int,
+    resampler: Optional[object] = None,
 ) -> bytes:
     """
     Convert raw audio bytes from the capture device format into
@@ -189,8 +190,13 @@ def convert_to_target(
 
     # Resample to 48000 Hz if needed
     if in_rate != TARGET_RATE:
-        if _SOXR_AVAILABLE:
-            arr = soxr.resample(arr, in_rate, TARGET_RATE, quality="MQ")
+        if resampler is not None:
+            try:
+                arr = resampler.resample_chunk(arr.astype(np.float32, copy=False), last=False)
+            except Exception:
+                arr = soxr.resample(arr, in_rate, TARGET_RATE, quality="HQ") if _SOXR_AVAILABLE else _resample_numpy(arr, in_rate, TARGET_RATE)
+        elif _SOXR_AVAILABLE:
+            arr = soxr.resample(arr, in_rate, TARGET_RATE, quality="HQ")
         else:
             arr = _resample_numpy(arr, in_rate, TARGET_RATE)
 
@@ -383,6 +389,8 @@ class AudioCapture:
         self._on_error = on_error
         self._frame_ms = frame_ms
         self._remainder = bytearray()
+        self.active_device_name: str = ""
+        self._resampler = None
         self.peak_level: float = 0.0
         self._stream = None
         self._pa: Optional["pyaudio.PyAudio"] = None
@@ -426,6 +434,7 @@ class AudioCapture:
             self._parec_proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0
             )
+            self.active_device_name = source_name
             self._running = True
             self._thread = threading.Thread(
                 target=self._linux_parec_loop, name="LinuxParecCapture", daemon=True
@@ -493,8 +502,17 @@ class AudioCapture:
                     self._device_index = devices[0]["index"]
 
                 info = self._pa.get_device_info_by_index(self._device_index)
+                self.active_device_name = info.get("name", f"Device {self._device_index}")
                 self._in_rate = int(info.get("defaultSampleRate", TARGET_RATE))
                 self._in_channels = max(1, int(info.get("maxInputChannels", 2)))
+
+                if _SOXR_AVAILABLE and self._in_rate != TARGET_RATE:
+                    try:
+                        self._resampler = soxr.ResampleStream(self._in_rate, TARGET_RATE, TARGET_CHANNELS, dtype="float32", quality="HQ")
+                    except Exception:
+                        self._resampler = None
+                else:
+                    self._resampler = None
 
                 # Choose format: prefer float32, fall back to int16
                 try:
@@ -560,7 +578,7 @@ class AudioCapture:
         """PyAudio stream callback — called from audio thread."""
         try:
             converted = convert_to_target(
-                in_data, self._in_rate, self._in_channels, self._in_format
+                in_data, self._in_rate, self._in_channels, self._in_format, resampler=self._resampler
             )
             
             # Compute peak audio level for UI level meter
@@ -618,6 +636,7 @@ class AudioCapture:
         """Stop the capture stream and clean up."""
         with self._lock:
             self._running = False
+            self._resampler = None
             if getattr(self, "_parec_proc", None) is not None:
                 try:
                     self._parec_proc.terminate()

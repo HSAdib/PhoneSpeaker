@@ -37,8 +37,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "phone_source": "MIC",              # MIC, APPS
     "output_targets": "PHONE_ONLY",     # PHONE_ONLY, PC_ONLY, BOTH_SYNCED
     "pc_sync_delay_ms": 25,             # 0 to 150 ms delay for PC speaker in BOTH_SYNCED
+    "audio_profile": "BALANCED",        # QUALITY, GAMING, BALANCED, CUSTOM
     "codec": CODEC_OPUS,
-    "opus_bitrate_kbps": 128,
+    "opus_bitrate_kbps": 192,
     "frame_ms": 5,
     "buffer_mode": "AUTO",              # LOW, MEDIUM, HIGH, AUTO, CUSTOM
     "custom_buffer_ms": 30.0,

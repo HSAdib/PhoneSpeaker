@@ -40,6 +40,7 @@ from audio_output import (
     PCDelayedAudioPlayer,
     PhoneAudioReceiver,
     list_output_devices,
+    normalize_device_name,
 )
 from virtual_device import (
     detect_virtual_devices,
@@ -152,6 +153,12 @@ class PhoneSpeakerApp:
         self._last_os_vol: Optional[float] = None
         self._last_os_mute: Optional[bool] = None
         self.sync_os_vol_var = tk.BooleanVar(value=True)
+        self.auto_pc_sync_var = tk.BooleanVar(value=True)
+        self._gain_sync_after_id: Optional[str] = None
+        self._phone_audio_engine = self.cfg.get("audio_output_engine", "OBOE_LOW_LATENCY")
+        self._phone_audio_fx = bool(self.cfg.get("enable_audio_effects", False))
+        self._phone_exclusive_mode = self.cfg.get("exclusive_audio_mode", "MIX_WITH_OTHERS")
+        self._phone_headset_disc = bool(self.cfg.get("stop_on_headset_disconnect", False))
 
         # Core StringVars & IntVars initialized early so all tabs can share them
         self.codec_var = tk.IntVar(value=int(self.cfg.get("codec", CODEC_OPUS)))
@@ -164,6 +171,7 @@ class PhoneSpeakerApp:
         self.direction_var = tk.StringVar(value=self.cfg.get("direction", "PC_TO_PHONE"))
         self.output_targets_var = tk.StringVar(value=self.cfg.get("output_targets", "PHONE_ONLY"))
         self.pc_sync_delay_var = tk.IntVar(value=int(self.cfg.get("pc_sync_delay_ms", 25)))
+        self.audio_profile_var = tk.StringVar(value=self.cfg.get("audio_profile", "BALANCED"))
         self.expected_delay_var = tk.StringVar(value="")
         self.delay_header_var = tk.StringVar(value="Delay: -- ms (Est. Total: -- ms) | Target: 30.0 ms | Loss: 0")
 
@@ -364,7 +372,7 @@ class PhoneSpeakerApp:
         os_sync_row = tk.Frame(conn_card, bg="#12161A")
         os_sync_row.pack(fill="x", padx=6, pady=(0, 2))
         tk.Checkbutton(
-            os_sync_row, text="Sync volume with Windows Sound Bar / System Volume Keys",
+            os_sync_row, text="Link with PC Volume Keys / Windows Sound Bar (100% = Phone's Current Volume)",
             variable=self.sync_os_vol_var, bg="#12161A", fg=FG_MUTED,
             selectcolor="#1E262E", activebackground="#12161A", activeforeground=FG, font=FONT_MONO_SM
         ).pack(side="left")
@@ -393,9 +401,9 @@ class PhoneSpeakerApp:
         role_row = tk.Frame(nf, bg=BG)
         role_row.grid(row=2, column=1, sticky="w", padx=2, pady=2)
         for text, val in [
-            ("PC → Phone", "PC_TO_PHONE"),
-            ("Phone → PC Mic", "PHONE_TO_PC"),
-            ("Full-Duplex", "FULL_DUPLEX"),
+            ("PC Sound → Phone", "PC_TO_PHONE"),
+            ("Phone Mic → PC", "PHONE_TO_PC"),
+            ("Both (Speaker + Mic)", "FULL_DUPLEX"),
         ]:
             tk.Radiobutton(
                 role_row, text=text, variable=self.direction_var, value=val,
@@ -405,7 +413,7 @@ class PhoneSpeakerApp:
             ).pack(side="left", padx=(0, 8))
 
         # 3. Speaker Output Targets & Dual-Speaker Sync
-        of = tk.LabelFrame(f, text=" Speaker Output & Dual-Speaker Sync ", bg=BG, fg=FG, font=FONT_MONO_BOLD, bd=1, relief="solid", padx=6, pady=3)
+        of = tk.LabelFrame(f, text=" Where to Play Sound (Speaker Routing) ", bg=BG, fg=FG, font=FONT_MONO_BOLD, bd=1, relief="solid", padx=6, pady=3)
         of.pack(fill="x", **pad)
         of.columnconfigure(1, weight=1)
 
@@ -414,17 +422,17 @@ class PhoneSpeakerApp:
         tgt_row.grid(row=0, column=1, sticky="w", padx=2, pady=2)
         for text, val in [
             ("Phone Only", "PHONE_ONLY"),
-            ("Both Synced", "BOTH_SYNCED"),
-            ("PC Only", "PC_ONLY"),
+            ("Phone + PC Together (Auto-Synced)", "BOTH_SYNCED"),
+            ("PC Speaker Only", "PC_ONLY"),
         ]:
             tk.Radiobutton(
                 tgt_row, text=text, variable=self.output_targets_var, value=val,
                 bg=BG, fg=FG, selectcolor="#222222", font=FONT_MONO_SM,
                 activebackground=BG, activeforeground=ACCENT,
-                command=self._on_local_setting_changed
+                command=self._on_output_target_changed
             ).pack(side="left", padx=(0, 8))
 
-        tk.Label(of, text="PC Sync Delay:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM, width=15, anchor="e").grid(row=1, column=0, sticky="e", padx=4, pady=2)
+        tk.Label(of, text="Speaker Sync:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM, width=15, anchor="e").grid(row=1, column=0, sticky="e", padx=4, pady=2)
         sync_row = tk.Frame(of, bg=BG)
         sync_row.grid(row=1, column=1, sticky="ew", padx=4, pady=2)
         self.sync_delay_scale = tk.Scale(
@@ -433,32 +441,54 @@ class PhoneSpeakerApp:
             command=self._on_pc_delay_changed
         )
         self.sync_delay_scale.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.sync_delay_val_label = tk.Label(sync_row, text=f"{self.pc_sync_delay_var.get()} ms", bg=BG, fg=ACCENT, font=FONT_MONO_BOLD, width=6, anchor="e")
-        self.sync_delay_val_label.pack(side="right")
+        self.sync_delay_scale.config(state="disabled")
+        self.sync_delay_val_label = tk.Label(sync_row, text=f"{self.pc_sync_delay_var.get()} ms", bg=BG, fg=ACCENT, font=FONT_MONO_BOLD, width=11, anchor="e")
+        self.sync_delay_val_label.pack(side="left")
+        tk.Checkbutton(
+            sync_row, text="Auto-Sync (100% Automatic)", variable=self.auto_pc_sync_var,
+            bg=BG, fg="#00EEEE", selectcolor="#222222", activebackground=BG,
+            font=FONT_MONO_SM, command=self._on_auto_pc_sync_toggled
+        ).pack(side="right", padx=(4, 0))
 
-        tk.Label(of, text="PC Playback Dev:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM, width=15, anchor="e").grid(row=2, column=0, sticky="e", padx=4, pady=2)
+        tk.Label(of, text="PC Speaker / Cable:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM, width=15, anchor="e").grid(row=2, column=0, sticky="e", padx=4, pady=2)
         self.pc_output_combo = ttk.Combobox(of, state="readonly", font=FONT_MONO_SM)
         self.pc_output_combo.grid(row=2, column=1, sticky="ew", padx=4, pady=2)
         self.pc_output_combo.bind("<<ComboboxSelected>>", self._on_pc_output_selected)
 
-        # 4. Audio Codec & Bitrate (Single Aligned Row + Expected Delay)
+        # 4. Audio Codec & Bitrate (Sound Mode + Single Aligned Row + Expected Delay)
         qf_tab1 = tk.LabelFrame(f, text=" Audio Codec & Bitrate ", bg=BG, fg=FG, font=FONT_MONO_BOLD, bd=1, relief="solid", padx=6, pady=3)
         qf_tab1.pack(fill="x", **pad)
+
+        prof_row = tk.Frame(qf_tab1, bg=BG)
+        prof_row.pack(fill="x", padx=4, pady=(2, 2))
+        tk.Label(prof_row, text="Sound Mode:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
+        for text, val in [
+            ("🎵 Best Quality (Music)", "QUALITY"),
+            ("⚡ Low Delay (Gaming)", "GAMING"),
+            ("⚖️ Balanced (Auto)", "BALANCED"),
+            ("🎛️ Custom", "CUSTOM"),
+        ]:
+            tk.Radiobutton(
+                prof_row, text=text, variable=self.audio_profile_var, value=val,
+                bg=BG, fg=ACCENT if val != "CUSTOM" else FG, selectcolor="#222222",
+                font=FONT_MONO_SM, activebackground=BG, activeforeground=ACCENT,
+                command=self._on_audio_profile_selected
+            ).pack(side="left", padx=(4, 4))
 
         cb_row = tk.Frame(qf_tab1, bg=BG)
         cb_row.pack(fill="x", padx=4, pady=2)
         tk.Label(cb_row, text="Codec:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
         tk.Radiobutton(cb_row, text="Opus", variable=self.codec_var, value=CODEC_OPUS,
                        bg=BG, fg=FG, selectcolor="#222222", font=FONT_MONO_SM,
-                       command=self._on_local_setting_changed).pack(side="left", padx=(4, 6))
+                       command=self._on_codec_changed).pack(side="left", padx=(4, 6))
         tk.Radiobutton(cb_row, text="PCM16 (Lossless)", variable=self.codec_var, value=CODEC_PCM16,
                        bg=BG, fg=FG, selectcolor="#222222", font=FONT_MONO_SM,
-                       command=self._on_local_setting_changed).pack(side="left", padx=(0, 12))
+                       command=self._on_codec_changed).pack(side="left", padx=(0, 12))
 
         tk.Label(cb_row, text="Bitrate:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
         self.bitrate_combo_tab1 = ttk.Combobox(cb_row, textvariable=self.bitrate_var, values=OPUS_BITRATES, width=5, state="readonly", font=FONT_MONO_SM)
         self.bitrate_combo_tab1.pack(side="left", padx=4)
-        self.bitrate_combo_tab1.bind("<<ComboboxSelected>>", lambda e: self._on_local_setting_changed())
+        self.bitrate_combo_tab1.bind("<<ComboboxSelected>>", lambda e: self._on_bitrate_changed())
         tk.Label(cb_row, text="kbps", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
 
         tk.Label(qf_tab1, textvariable=self.expected_delay_var, bg=BG, fg="#00EEEE", font=FONT_MONO_SM, anchor="w").pack(fill="x", padx=4, pady=(1, 2))
@@ -477,8 +507,8 @@ class PhoneSpeakerApp:
         self.start_btn.pack(fill="x", pady=(0, 4))
 
         self.mic_btn = tk.Button(
-            btn_container, text="■  STOP MIC RECEIVER (PHONE → PC :5006 ACTIVE)",
-            bg="#002233", fg="#00EEEE", font=FONT_MONO_BOLD,
+            btn_container, text="🎤  START MIC STREAM / RECEIVER (PHONE → PC :5006)",
+            bg="#112222", fg="#00EEEE", font=FONT_MONO_BOLD,
             activebackground="#003B55", activeforeground="#00EEEE",
             relief="raised", bd=2, padx=8, pady=4, cursor="hand2",
             command=self._toggle_mic_receiver,
@@ -489,7 +519,7 @@ class PhoneSpeakerApp:
         status_frame = tk.LabelFrame(f, text=" Live Telemetry & Delay Graph ", bg=BG, fg=FG, font=FONT_MONO_BOLD, bd=1, relief="solid", padx=6, pady=3)
         status_frame.pack(fill="both", expand=True, **pad)
 
-        self.status_var = tk.StringVar(value="SPEAKER: IDLE | MIC RX: LISTENING (:5006)")
+        self.status_var = tk.StringVar(value="SPEAKER: IDLE | MIC RX: READY (:5006)")
         self.status_label = tk.Label(status_frame, textvariable=self.status_var, bg=BG, fg=ACCENT, font=FONT_MONO_BOLD, anchor="w")
         self.status_label.pack(fill="x", padx=4, pady=(1, 2))
 
@@ -505,10 +535,10 @@ class PhoneSpeakerApp:
         sg.columnconfigure(0, weight=1, uniform="stat")
         sg.columnconfigure(1, weight=1, uniform="stat")
 
-        self.pps_var = tk.StringVar(value="SPK TX PPS: 0")
-        self.rx_pps_var = tk.StringVar(value="MIC RX PPS: 0")
-        self.latency_var = tk.StringVar(value="Buffer: --")
-        self.loss_var = tk.StringVar(value="Loss: --")
+        self.pps_var = tk.StringVar(value="Speaker Packets: 0/s")
+        self.rx_pps_var = tk.StringVar(value="Mic Packets: 0/s")
+        self.latency_var = tk.StringVar(value="Phone Buffer: --")
+        self.loss_var = tk.StringVar(value="Dropped: --")
         self.phone_ip_var = tk.StringVar(value="Phone: --")
         self.mic_state_var = tk.StringVar(value="Phone Mic: READY")
 
@@ -538,19 +568,19 @@ class PhoneSpeakerApp:
         codec_box = tk.Frame(qf, bg=BG)
         codec_box.grid(row=0, column=1, sticky="w", padx=4, pady=3)
         tk.Radiobutton(codec_box, text="Compressed (Opus)", variable=self.codec_var, value=CODEC_OPUS,
-                       bg=BG, fg=FG, selectcolor="#333333", font=FONT_MONO, command=self._on_local_setting_changed).pack(side="left")
+                       bg=BG, fg=FG, selectcolor="#333333", font=FONT_MONO, command=self._on_codec_changed).pack(side="left")
         tk.Radiobutton(codec_box, text="Lossless PCM16", variable=self.codec_var, value=CODEC_PCM16,
-                       bg=BG, fg=FG, selectcolor="#333333", font=FONT_MONO, command=self._on_local_setting_changed).pack(side="left", padx=8)
+                       bg=BG, fg=FG, selectcolor="#333333", font=FONT_MONO, command=self._on_codec_changed).pack(side="left", padx=8)
 
         tk.Label(qf, text="Opus Bitrate:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).grid(row=1, column=0, sticky="e", padx=4, pady=3)
         bitrate_combo = ttk.Combobox(qf, textvariable=self.bitrate_var, values=OPUS_BITRATES, width=8, state="readonly", font=FONT_MONO)
         bitrate_combo.grid(row=1, column=1, sticky="w", padx=4, pady=3)
-        bitrate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_local_setting_changed())
+        bitrate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_bitrate_changed())
 
         tk.Label(qf, text="Frame Size:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).grid(row=2, column=0, sticky="e", padx=4, pady=3)
         frame_combo = ttk.Combobox(qf, textvariable=self.frame_ms_var, values=FRAME_SIZES_MS, width=8, state="readonly", font=FONT_MONO)
         frame_combo.grid(row=2, column=1, sticky="w", padx=4, pady=3)
-        frame_combo.bind("<<ComboboxSelected>>", lambda e: self._on_local_setting_changed())
+        frame_combo.bind("<<ComboboxSelected>>", lambda e: self._on_frame_ms_changed())
 
         # Expected delay label
         tk.Label(qf, textvariable=self.expected_delay_var, bg=BG, fg="#00EEEE", font=FONT_MONO_SM, anchor="w").grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=2)
@@ -559,7 +589,6 @@ class PhoneSpeakerApp:
         bf = tk.LabelFrame(f, text=" Playout Buffer Modes (Phone Playout) ", bg=BG, fg=FG, font=FONT_MONO, bd=1, relief="solid")
         bf.pack(fill="x", **pad)
 
-        self.buffer_mode_var = tk.StringVar(value=self.cfg.get("buffer_mode", "AUTO"))
         buf_modes = [
             ("Low (20 ms) — Video & Gaming", "LOW"),
             ("Medium (40 ms) — Balanced", "MEDIUM"),
@@ -577,7 +606,6 @@ class PhoneSpeakerApp:
         custom_row = tk.Frame(bf, bg=BG)
         custom_row.pack(fill="x", padx=8, pady=4)
         tk.Label(custom_row, text="Target Buffer:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
-        self.custom_buffer_var = tk.DoubleVar(value=float(self.cfg.get("custom_buffer_ms", 30.0)))
         self.buffer_slider = tk.Scale(
             custom_row, from_=10.0, to=200.0, resolution=2.5, orient="horizontal",
             variable=self.custom_buffer_var, showvalue=False,
@@ -595,7 +623,6 @@ class PhoneSpeakerApp:
         v_row = tk.Frame(vf, bg=BG)
         v_row.pack(fill="x", padx=8, pady=4)
         tk.Label(v_row, text="Gain Boost:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
-        self.volume_gain_var = tk.DoubleVar(value=float(self.cfg.get("volume_gain", 1.0)))
         self.gain_slider = tk.Scale(
             v_row, from_=0.0, to=2.0, resolution=0.05, orient="horizontal",
             variable=self.volume_gain_var, showvalue=False,
@@ -606,7 +633,6 @@ class PhoneSpeakerApp:
         self.gain_val_label = tk.Label(v_row, text=f"{int(self.volume_gain_var.get() * 100)}%", bg=BG, fg=ACCENT, font=FONT_MONO_SM)
         self.gain_val_label.pack(side="left")
 
-        self.muted_var = tk.BooleanVar(value=bool(self.cfg.get("muted", False)))
         self.mute_btn = tk.Button(
             v_row, text="MUTE", bg="#333333", fg=FG, font=FONT_MONO_SM,
             command=self._toggle_mute
@@ -689,19 +715,26 @@ class PhoneSpeakerApp:
             self.adapter_combo.current(0)
 
     def _refresh_audio_devices(self) -> None:
+        prev_idx = self.audio_dev_combo.current()
         loopbacks = list_loopback_devices()
         inputs = list_input_devices()
         self._audio_devices = loopbacks + inputs
         entries = ["Auto (Windows Default Loopback)"] + [f"[Loopback] {d['name']}" for d in loopbacks] + [f"[Mic] {d['name']}" for d in inputs]
         self.audio_dev_combo["values"] = entries
-        self.audio_dev_combo.current(0)
+        if 0 <= prev_idx < len(entries):
+            self.audio_dev_combo.current(prev_idx)
+        else:
+            self.audio_dev_combo.current(0)
 
     def _refresh_pc_outputs(self) -> None:
+        prev_idx = self.pc_output_combo.current()
         outputs = list_output_devices()
         self._pc_output_devices = outputs
         entries = [f"{d['name']}" + (" (Default)" if d.get("is_default") else "") for d in outputs]
         self.pc_output_combo["values"] = entries if entries else ["(none found)"]
-        if entries:
+        if 0 <= prev_idx < len(entries):
+            self.pc_output_combo.current(prev_idx)
+        elif entries:
             self.pc_output_combo.current(0)
 
     def _on_adapter_selected(self, event=None) -> None:
@@ -771,6 +804,7 @@ class PhoneSpeakerApp:
             "phone_source": "MIC",
             "output_targets": self.output_targets_var.get(),
             "pc_sync_delay_ms": self.pc_sync_delay_var.get(),
+            "audio_profile": self.audio_profile_var.get(),
             "codec": self.codec_var.get(),
             "opus_bitrate_kbps": int(self.bitrate_var.get()),
             "frame_ms": int(self.frame_ms_var.get()),
@@ -780,11 +814,66 @@ class PhoneSpeakerApp:
             "volume_gain": self.volume_gain_var.get(),
             "muted": self.muted_var.get(),
             "pc_name": socket.gethostname(),
-            "audio_output_engine": "OBOE_LOW_LATENCY",
-            "enable_audio_effects": False,
-            "exclusive_audio_mode": "MIX_WITH_OTHERS",
-            "stop_on_headset_disconnect": False,
+            "audio_output_engine": self._phone_audio_engine,
+            "enable_audio_effects": self._phone_audio_fx,
+            "exclusive_audio_mode": self._phone_exclusive_mode,
+            "stop_on_headset_disconnect": self._phone_headset_disc,
         }
+
+    def _get_safe_pc_playback_device(self) -> Optional[object]:
+        """
+        Return a physical PC output device index that is distinct from the active capture loopback device.
+        If AudioCapture is already capturing directly from the only physical speaker, return None so
+        PCDelayedAudioPlayer does not inject delayed audio back into the active loopback (which causes phone echo).
+        """
+        if not self._pc_output_devices:
+            return None
+
+        cap_name = ""
+        if self._audio_capture and getattr(self._audio_capture, "active_device_name", ""):
+            cap_name = self._audio_capture.active_device_name
+        else:
+            sel = self.audio_dev_combo.current()
+            if sel == 0:
+                if self._audio_devices:
+                    cap_name = self._audio_devices[0].get("name", "")
+                else:
+                    loopbacks = list_loopback_devices()
+                    if loopbacks:
+                        cap_name = loopbacks[0].get("name", "")
+            elif sel >= 1 and (sel - 1) < len(self._audio_devices):
+                cap_name = self._audio_devices[sel - 1].get("name", "")
+        cap_norm = normalize_device_name(cap_name)
+
+        out_sel = self.pc_output_combo.current()
+        current_dev = self._pc_output_devices[out_sel] if (0 <= out_sel < len(self._pc_output_devices)) else None
+
+        # 1. Check if the currently selected PC Playback Dev is a physical speaker distinct from cap_norm
+        if current_dev and not current_dev.get("is_virtual", False):
+            cur_norm = normalize_device_name(current_dev.get("name", ""))
+            if not cap_norm or (cur_norm != cap_norm and cur_norm not in cap_norm and cap_norm not in cur_norm):
+                return current_dev.get("index")
+
+        # 2. Search for the first physical (non-virtual) speaker distinct from cap_norm
+        for i, dev in enumerate(self._pc_output_devices):
+            if dev.get("is_virtual", False):
+                continue
+            dev_norm = normalize_device_name(dev.get("name", ""))
+            if not cap_norm or (dev_norm != cap_norm and dev_norm not in cap_norm and cap_norm not in dev_norm):
+                self.pc_output_combo.current(i)
+                logger.info(
+                    "Selected physical PC Playback Dev '%s' (capture source is '%s')",
+                    dev.get("name"), cap_name
+                )
+                return dev.get("index")
+
+        # 3. If AudioCapture is already capturing the only physical speaker on the system,
+        # Windows is already playing natively to the PC speaker! Return None to avoid loopback feedback echo.
+        logger.info(
+            "Capture source '%s' is already the active physical speaker; skipping duplicate PC playback to prevent echo",
+            cap_name
+        )
+        return None
 
     def _sync_live_pc_player(self) -> None:
         """Start, update, or stop PCDelayedAudioPlayer dynamically when output_targets changes mid-stream."""
@@ -796,17 +885,24 @@ class PhoneSpeakerApp:
         delay = 0.0 if targets == "PC_ONLY" else float(self.pc_sync_delay_var.get())
 
         if targets in ("BOTH_SYNCED", "PC_ONLY"):
+            pc_out_idx = self._get_safe_pc_playback_device()
+            if pc_out_idx is None:
+                # Physical speaker is already playing natively via Windows; ensure no feedback player is running
+                if hasattr(self, "_queue_adapter") and self._queue_adapter is not None:
+                    self._queue_adapter._mirror = None
+                if self._pc_player is not None:
+                    self._pc_player.stop()
+                    self._pc_player = None
+                return
+
             if self._pc_player is None:
-                pc_out_idx = None
-                out_sel = self.pc_output_combo.current()
-                if 0 <= out_sel < len(self._pc_output_devices):
-                    pc_out_idx = self._pc_output_devices[out_sel]["index"]
                 self._pc_player = PCDelayedAudioPlayer(device_index=pc_out_idx, delay_ms=delay)
                 self._pc_player.set_gain_and_mute(gain, muted)
                 self._pc_player.start()
                 if hasattr(self, "_queue_adapter") and self._queue_adapter is not None:
                     self._queue_adapter._mirror = self._pc_player.write_frame
             else:
+                self._pc_player.set_output_device(pc_out_idx)
                 self._pc_player.set_delay_ms(delay)
                 self._pc_player.set_gain_and_mute(gain, muted)
                 if hasattr(self, "_queue_adapter") and self._queue_adapter is not None:
@@ -853,12 +949,80 @@ class PhoneSpeakerApp:
         if phone_ip:
             send_control_message(phone_ip, cfg, CONTROL_PORT)
 
+    def _on_audio_profile_selected(self) -> None:
+        prof = self.audio_profile_var.get()
+        if prof != "CUSTOM":
+            self._apply_profile_presets(prof)
+        self._on_local_setting_changed()
+
+    def _apply_profile_presets(self, profile: str) -> None:
+        self._suppress_sync = True
+        try:
+            if profile == "QUALITY":
+                self.codec_var.set(CODEC_OPUS)
+                self.bitrate_var.set("256")
+                self.frame_ms_var.set("10")
+                self.buffer_mode_var.set("HIGH")
+                self.custom_buffer_var.set(80.0)
+            elif profile == "GAMING":
+                self.codec_var.set(CODEC_OPUS)
+                self.bitrate_var.set("128")
+                self.frame_ms_var.set("5")
+                self.buffer_mode_var.set("LOW")
+                self.custom_buffer_var.set(20.0)
+            elif profile == "BALANCED":
+                self.codec_var.set(CODEC_OPUS)
+                self.bitrate_var.set("192")
+                self.frame_ms_var.set("5")
+                self.buffer_mode_var.set("AUTO")
+                self.custom_buffer_var.set(30.0)
+            if hasattr(self, "buffer_val_label"):
+                self.buffer_val_label.config(text=f"{self.custom_buffer_var.get():.1f} ms")
+        finally:
+            self._suppress_sync = False
+
+    def _on_codec_changed(self) -> None:
+        if not self._suppress_sync:
+            self.audio_profile_var.set("CUSTOM")
+        self._on_local_setting_changed()
+
+    def _on_bitrate_changed(self) -> None:
+        if not self._suppress_sync:
+            self.audio_profile_var.set("CUSTOM")
+        self._on_local_setting_changed()
+
+    def _on_frame_ms_changed(self) -> None:
+        if not self._suppress_sync:
+            self.audio_profile_var.set("CUSTOM")
+        self._on_local_setting_changed()
+
+    def _on_auto_pc_sync_toggled(self) -> None:
+        is_auto = self.auto_pc_sync_var.get()
+        self.sync_delay_scale.config(state="disabled" if is_auto else "normal")
+        if not is_auto:
+            self.sync_delay_val_label.config(text=f"{self.pc_sync_delay_var.get()} ms")
+        self._on_local_setting_changed()
+
+    def _on_output_target_changed(self) -> None:
+        targets = self.output_targets_var.get()
+        if targets == "BOTH_SYNCED":
+            self.auto_pc_sync_var.set(True)
+            self.sync_delay_scale.config(state="disabled")
+            self.audio_profile_var.set("QUALITY")
+            self._apply_profile_presets("QUALITY")
+            self.custom_buffer_var.set(60.0)
+            if hasattr(self, "buffer_val_label"):
+                self.buffer_val_label.config(text="60.0 ms")
+        self._sync_live_pc_player()
+        self._on_local_setting_changed()
+
     def _on_role_change(self) -> None:
         self._on_local_setting_changed()
 
     def _on_pc_delay_changed(self, val) -> None:
         if self._suppress_sync:
             return
+        self.auto_pc_sync_var.set(False)
         delay = int(val)
         self.sync_delay_val_label.config(text=f"{delay} ms")
         if self._pc_player:
@@ -866,6 +1030,8 @@ class PhoneSpeakerApp:
         self._on_local_setting_changed()
 
     def _on_buffer_mode_changed(self) -> None:
+        if not self._suppress_sync:
+            self.audio_profile_var.set("CUSTOM")
         mode = self.buffer_mode_var.get()
         if mode == "LOW":
             self.custom_buffer_var.set(20.0)
@@ -881,19 +1047,42 @@ class PhoneSpeakerApp:
             return
         self.buffer_val_label.config(text=f"{float(val):.1f} ms")
         self.buffer_mode_var.set("CUSTOM")
+        self.audio_profile_var.set("CUSTOM")
         self._on_local_setting_changed()
 
     def _on_gain_slider_changed(self, val) -> None:
         if self._suppress_sync:
             return
-        gain = float(val)
-        self.gain_val_label.config(text=f"{int(gain * 100)}%")
+        gain = round(float(val), 2)
+        self._suppress_sync = True
+        try:
+            self.volume_gain_var.set(gain)
+        finally:
+            self._suppress_sync = False
+
+        pct_text = f"{int(round(gain * 100))}%"
+        self.gain_val_label.config(text=pct_text)
         if hasattr(self, "conn_vol_pct_label"):
-            self.conn_vol_pct_label.config(text=f"{int(gain * 100)}%")
-        if getattr(self, "sync_os_vol_var", None) and self.sync_os_vol_var.get() and gain <= 1.0:
-            set_system_volume_and_mute(gain, self.muted_var.get())
-            self._last_os_vol = min(1.0, gain)
-        self._on_local_setting_changed()
+            self.conn_vol_pct_label.config(text=pct_text)
+
+        muted = self.muted_var.get()
+        if self._udp_sender:
+            send_enabled = (self.output_targets_var.get() != "PC_ONLY")
+            self._udp_sender.set_routing_and_gain(send_enabled, gain, muted)
+        if self._pc_player:
+            self._pc_player.set_gain_and_mute(gain, muted)
+
+        if getattr(self, "sync_os_vol_var", None) and self.sync_os_vol_var.get():
+            os_target = min(1.0, max(0.0, gain))
+            set_system_volume_and_mute(os_target, muted)
+            self._last_os_vol = os_target
+
+        if hasattr(self, "_gain_sync_after_id") and self._gain_sync_after_id:
+            try:
+                self.root.after_cancel(self._gain_sync_after_id)
+            except Exception:
+                pass
+        self._gain_sync_after_id = self.root.after(60, self._on_local_setting_changed)
 
     def _toggle_mute(self) -> None:
         m = not self.muted_var.get()
@@ -942,6 +1131,8 @@ class PhoneSpeakerApp:
                 self.bitrate_var.set(str(msg["opus_bitrate_kbps"]))
             if "frame_ms" in msg:
                 self.frame_ms_var.set(str(msg["frame_ms"]))
+            if "audio_profile" in msg:
+                self.audio_profile_var.set(msg["audio_profile"])
             if "output_targets" in msg:
                 self.output_targets_var.set(msg["output_targets"])
             if "pc_sync_delay_ms" in msg:
@@ -959,23 +1150,25 @@ class PhoneSpeakerApp:
             if "volume_gain" in msg:
                 g = float(msg["volume_gain"])
                 self.volume_gain_var.set(g)
-                self.gain_val_label.config(text=f"{int(g * 100)}%")
+                self.gain_val_label.config(text=f"{int(round(g * 100))}%")
                 if hasattr(self, "conn_vol_pct_label"):
-                    self.conn_vol_pct_label.config(text=f"{int(g * 100)}%")
-                if getattr(self, "sync_os_vol_var", None) and self.sync_os_vol_var.get() and g <= 1.0:
-                    set_system_volume_and_mute(g, self.muted_var.get())
-                    self._last_os_vol = min(1.0, g)
+                    self.conn_vol_pct_label.config(text=f"{int(round(g * 100))}%")
             if "muted" in msg:
                 m = bool(msg["muted"])
                 self.muted_var.set(m)
                 self.mute_btn.config(bg="#990000" if m else "#333333", text="MUTED" if m else "MUTE")
                 if hasattr(self, "conn_mute_icon_btn"):
                     self.conn_mute_icon_btn.config(text="🔇" if m else "🔊")
-                if getattr(self, "sync_os_vol_var", None) and self.sync_os_vol_var.get():
-                    set_system_volume_and_mute(self.volume_gain_var.get(), m)
-                    self._last_os_mute = m
             if "direction" in msg:
                 self.direction_var.set(msg["direction"])
+            if "audio_output_engine" in msg:
+                self._phone_audio_engine = str(msg["audio_output_engine"])
+            if "enable_audio_effects" in msg:
+                self._phone_audio_fx = bool(msg["enable_audio_effects"])
+            if "exclusive_audio_mode" in msg:
+                self._phone_exclusive_mode = str(msg["exclusive_audio_mode"])
+            if "stop_on_headset_disconnect" in msg:
+                self._phone_headset_disc = bool(msg["stop_on_headset_disconnect"])
 
             self._update_expected_delay_label()
 
@@ -1016,6 +1209,9 @@ class PhoneSpeakerApp:
             self._start_streaming()
 
     def _start_streaming(self) -> None:
+        self._refresh_audio_devices()
+        self._refresh_pc_outputs()
+
         direction = self.direction_var.get()
         target_ip = self.ip_var.get().strip()
         if direction in ("PC_TO_PHONE", "FULL_DUPLEX") and not target_ip:
@@ -1066,29 +1262,13 @@ class PhoneSpeakerApp:
             self._udp_sender.set_routing_and_gain(send_enabled, self.volume_gain_var.get(), self.muted_var.get())
             self._udp_sender.start()
 
-            # Dual-speaker sync PC player / PC_ONLY playback
-            mirror_cb = None
-            if output_targets in ("BOTH_SYNCED", "PC_ONLY"):
-                pc_out_idx = None
-                out_sel = self.pc_output_combo.current()
-                if 0 <= out_sel < len(self._pc_output_devices):
-                    pc_out_idx = self._pc_output_devices[out_sel]["index"]
-                delay = 0.0 if output_targets == "PC_ONLY" else float(self.pc_sync_delay_var.get())
-                self._pc_player = PCDelayedAudioPlayer(
-                    device_index=pc_out_idx,
-                    delay_ms=delay,
-                )
-                self._pc_player.set_gain_and_mute(self.volume_gain_var.get(), self.muted_var.get())
-                self._pc_player.start()
-                mirror_cb = self._pc_player.write_frame
-
-            # Audio capture device
+            # Audio capture device (started BEFORE pc_player so active_device_name is known for echo prevention)
             dev_idx = None
             sel = self.audio_dev_combo.current()
             if sel >= 1 and (sel - 1) < len(self._audio_devices):
                 dev_idx = self._audio_devices[sel - 1]["index"]
 
-            self._queue_adapter = _QueueAdapter(self._audio_queue, mirror_callback=mirror_cb)
+            self._queue_adapter = _QueueAdapter(self._audio_queue, mirror_callback=None)
             self._audio_capture = AudioCapture(
                 device_index=dev_idx,
                 output_queue=self._queue_adapter,
@@ -1100,6 +1280,9 @@ class PhoneSpeakerApp:
                 self._stop_streaming()
                 self._status_set("CAPTURE ERROR", ERROR_COLOR)
                 return
+
+            # Start PC delayed audio player / PC_ONLY playback now that active capture device is known
+            self._sync_live_pc_player()
 
         # 2. Always start Phone -> PC Receiver (UDP port 5006) so phone mic can connect at any time
         if self._phone_receiver is None:
@@ -1121,6 +1304,10 @@ class PhoneSpeakerApp:
         )
         self._update_combined_status()
         logger.info("Streaming started (direction=%s, target=%s:%d)", direction, target_ip, target_port)
+        try:
+            send_control_message(target_ip, self._get_current_config(), CONTROL_PORT)
+        except Exception:
+            pass
 
     def _stop_streaming(self) -> None:
         if self._audio_capture:
@@ -1144,7 +1331,7 @@ class PhoneSpeakerApp:
             text="▶  START SPEAKER STREAM (PC → PHONE :5004)", bg="#003300", fg=ACCENT,
             activebackground="#005500", activeforeground=ACCENT
         )
-        self.pps_var.set("SPK TX PPS: 0")
+        self.pps_var.set("Speaker Packets: 0/s")
         self._update_combined_status()
         self._level_canvas.coords(self._level_bar, 0, 0, 0, 12)
         logger.info("Streaming stopped")
@@ -1164,14 +1351,14 @@ class PhoneSpeakerApp:
             )
             self._phone_receiver.start()
 
-        is_muted = getattr(self._phone_receiver, "_muted", False)
-        new_active = is_muted  # If previously muted, activate (unmute) it
-        self._phone_receiver.set_muted(not new_active)
+        is_muted = getattr(self._phone_receiver, "_muted", True)
+        new_active = is_muted  # First click: is_muted is True -> new_active = True (STARTS mic!)
+        self._phone_receiver.set_muted(not new_active, manual=not new_active)
         self._mic_control_cooldown_until = time.monotonic() + 1.5
         self._last_phone_mic_state = new_active
 
         if not new_active:
-            self.rx_pps_var.set("MIC RX PPS: 0")
+            self.rx_pps_var.set("Mic Packets: 0/s")
             self.mic_state_var.set("Phone Mic: OFF")
             self.mic_btn.config(
                 text="🎤  START MIC STREAM / RECEIVER (PHONE → PC :5006)",
@@ -1343,9 +1530,9 @@ class PhoneSpeakerApp:
                 kind, data = item[0], item[1]
 
                 if kind == "pps":
-                    self.pps_var.set(f"SPK TX PPS: {data}")
+                    self.pps_var.set(f"Speaker Packets: {data}/s")
                 elif kind == "rx_pps":
-                    self.rx_pps_var.set(f"MIC RX PPS: {data}")
+                    self.rx_pps_var.set(f"Mic Packets: {data}/s")
                     self.mic_state_var.set("Phone Mic: STREAMING" if data > 0 else "Phone Mic: LISTENING")
                     self._update_combined_status()
                 elif kind == "driver_done":
@@ -1433,6 +1620,7 @@ class PhoneSpeakerApp:
                             should_update_ip = True
 
                     if should_update_ip:
+                        old_ip = current_ip
                         self.ip_var.set(best_ip)
                         if self._streaming and self._udp_sender and best_ip != current_ip:
                             try:
@@ -1441,6 +1629,11 @@ class PhoneSpeakerApp:
                                 target_port = AUDIO_PORT
                             self._udp_sender.update_target(best_ip, target_port)
                             self._update_combined_status()
+                        if old_ip != best_ip or not old_ip:
+                            try:
+                                send_control_message(best_ip, self._get_current_config(), CONTROL_PORT)
+                            except Exception:
+                                pass
 
                 elif kind == "stats":
                     s = data
@@ -1459,7 +1652,7 @@ class PhoneSpeakerApp:
                         if phone_mic_active != getattr(self, "_last_phone_mic_state", None):
                             self._last_phone_mic_state = phone_mic_active
                             if self._phone_receiver:
-                                self._phone_receiver.set_muted(not phone_mic_active)
+                                self._phone_receiver.set_muted(not phone_mic_active, manual=False)
                             if phone_mic_active:
                                 self.mic_btn.config(
                                     text="■  STOP MIC RECEIVER (PHONE → PC :5006 ACTIVE)",
@@ -1474,12 +1667,30 @@ class PhoneSpeakerApp:
                                 self.mic_state_var.set("Phone Mic: READY")
                             self._update_combined_status()
 
+                    if self.auto_pc_sync_var.get() and isinstance(s.get("buffer_ms"), (int, float)):
+                        net_oneway = float(s.get("_net_oneway_ms", 3.0))
+                        phone_buf = float(s.get("buffer_ms", 30.0))
+                        live_phone_delay = max(0.0, min(250.0, net_oneway + phone_buf + 14.0 - 20.0))
+                        if self._pc_player and self.output_targets_var.get() == "BOTH_SYNCED":
+                            smoothed_val = self._pc_player.set_smooth_delay_ms(live_phone_delay)
+                        else:
+                            smoothed_val = live_phone_delay
+                        self._suppress_sync = True
+                        try:
+                            rounded_delay = int(round(smoothed_val))
+                            self.sync_delay_scale.config(state="normal")
+                            self.pc_sync_delay_var.set(rounded_delay)
+                            self.sync_delay_val_label.config(text=f"Auto ({rounded_delay}ms)")
+                            self.sync_delay_scale.config(state="disabled")
+                        finally:
+                            self._suppress_sync = False
+
                     self.latency_var.set(
-                        f"Buffer: {s.get('buffer_ms', '--'):.1f}ms"
-                        if isinstance(s.get("buffer_ms"), (int, float)) else "Buffer: --"
+                        f"Phone Buffer: {s.get('buffer_ms', '--'):.1f} ms"
+                        if isinstance(s.get("buffer_ms"), (int, float)) else "Phone Buffer: --"
                     )
                     lost = s.get("lost_packets", "--")
-                    self.loss_var.set(f"Lost: {lost}")
+                    self.loss_var.set(f"Dropped: {lost}")
         except queue.Empty:
             pass
 
@@ -1563,6 +1774,7 @@ class PhoneSpeakerApp:
         if hasattr(self, "conn_mute_icon_btn"):
             self.conn_mute_icon_btn.config(text="🔇" if m else "🔊")
         self.direction_var.set(self.cfg.get("direction", "PC_TO_PHONE"))
+        self.audio_profile_var.set(self.cfg.get("audio_profile", "BALANCED"))
         self.output_targets_var.set(self.cfg.get("output_targets", "PHONE_ONLY"))
         d = int(self.cfg.get("pc_sync_delay_ms", 25))
         self.pc_sync_delay_var.set(d)
@@ -1584,9 +1796,14 @@ class PhoneSpeakerApp:
         self.cfg["volume_gain"] = self.volume_gain_var.get()
         self.cfg["muted"] = self.muted_var.get()
         self.cfg["direction"] = self.direction_var.get()
+        self.cfg["audio_profile"] = self.audio_profile_var.get()
         self.cfg["output_targets"] = self.output_targets_var.get()
         self.cfg["pc_sync_delay_ms"] = self.pc_sync_delay_var.get()
         self.cfg["minimize_to_tray"] = self.tray_var.get()
+        self.cfg["audio_output_engine"] = self._phone_audio_engine
+        self.cfg["enable_audio_effects"] = self._phone_audio_fx
+        self.cfg["exclusive_audio_mode"] = self._phone_exclusive_mode
+        self.cfg["stop_on_headset_disconnect"] = self._phone_headset_disc
         self.cfg["config_rev"] = self._config_rev
         save(self.cfg)
 

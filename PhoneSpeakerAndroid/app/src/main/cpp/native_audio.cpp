@@ -78,8 +78,11 @@ void NativeAudioEngine::stop() {
         mReceiverThread.join();
     }
 
-    if (mReopenThread.joinable()) {
-        mReopenThread.join();
+    {
+        std::lock_guard<std::mutex> lock(mReopenMutex);
+        if (mReopenThread.joinable()) {
+            mReopenThread.join();
+        }
     }
 
     closeOboeStream();
@@ -99,10 +102,12 @@ bool NativeAudioEngine::openAndStartOboeStream() {
         ->setErrorCallback(this);
 
     if (mLowLatencyMode.load()) {
-        builder.setPerformanceMode(oboe::PerformanceMode::LowLatency)
+        builder.setAudioApi(oboe::AudioApi::AAudio)
+            ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
             ->setSharingMode(oboe::SharingMode::Exclusive);
     } else {
-        builder.setPerformanceMode(oboe::PerformanceMode::None)
+        builder.setAudioApi(oboe::AudioApi::OpenSLES)
+            ->setPerformanceMode(oboe::PerformanceMode::None)
             ->setSharingMode(oboe::SharingMode::Shared)
             ->setSessionId(oboe::SessionId::Allocate);
     }
@@ -118,9 +123,10 @@ bool NativeAudioEngine::openAndStartOboeStream() {
         }
     }
 
-    // Configure double burst buffer size for optimal latency/stability balance
-    int32_t burst = mAudioStream->getFramesPerBurst();
-    mAudioStream->setBufferSizeInFrames(burst * 2);
+    // Configure burst buffer size for optimal latency/stability balance
+    int32_t burst = std::max(192, mAudioStream->getFramesPerBurst());
+    int32_t mult = mLowLatencyMode.load() ? 3 : 4;
+    mAudioStream->setBufferSizeInFrames(burst * mult);
 
     result = mAudioStream->requestStart();
     if (result != oboe::Result::OK) {
@@ -245,23 +251,32 @@ oboe::DataCallbackResult NativeAudioEngine::onAudioReady(oboe::AudioStream* /*st
     return oboe::DataCallbackResult::Continue;
 }
 
+void NativeAudioEngine::scheduleStreamReopen() {
+    if (!mIsRunning.load()) return;
+    bool expected = false;
+    if (!mReopenPending.compare_exchange_strong(expected, true)) {
+        return; // Reopen already in progress
+    }
+    std::lock_guard<std::mutex> lock(mReopenMutex);
+    if (mReopenThread.joinable()) {
+        if (mReopenThread.get_id() == std::this_thread::get_id()) {
+            mReopenThread.detach();
+        } else {
+            mReopenThread.join();
+        }
+    }
+    mReopenThread = std::thread([this]() {
+        if (mIsRunning.load()) {
+            closeOboeStream();
+            openAndStartOboeStream();
+        }
+        mReopenPending.store(false);
+    });
+}
+
 void NativeAudioEngine::onErrorAfterClose(oboe::AudioStream* /*stream*/, oboe::Result result) {
     LOGI("Audio stream error after close: %s. Reopening stream.", oboe::convertToText(result));
-    if (mIsRunning.load()) {
-        if (mReopenThread.joinable()) {
-            if (mReopenThread.get_id() == std::this_thread::get_id()) {
-                mReopenThread.detach();
-            } else {
-                mReopenThread.join();
-            }
-        }
-        mReopenThread = std::thread([this]() {
-            if (mIsRunning.load()) {
-                closeOboeStream();
-                openAndStartOboeStream();
-            }
-        });
-    }
+    scheduleStreamReopen();
 }
 
 void NativeAudioEngine::setTargetBufferMs(float target_ms) {
@@ -299,15 +314,7 @@ float NativeAudioEngine::getVolumeGain() const {
 void NativeAudioEngine::setLowLatencyMode(bool lowLatency) {
     bool prev = mLowLatencyMode.exchange(lowLatency);
     if (prev != lowLatency && mIsRunning.load()) {
-        if (mReopenThread.joinable()) {
-            mReopenThread.join();
-        }
-        mReopenThread = std::thread([this]() {
-            if (mIsRunning.load()) {
-                closeOboeStream();
-                openAndStartOboeStream();
-            }
-        });
+        scheduleStreamReopen();
     }
 }
 

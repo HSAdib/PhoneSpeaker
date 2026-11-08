@@ -128,7 +128,7 @@ def list_real_adapters() -> List[Dict[str, Any]]:
 # Bounded audio frame ring buffer (lock-free via queue)
 # ---------------------------------------------------------------------------
 
-QUEUE_MAX_FRAMES = 10  # ~50ms at 5ms/frame
+QUEUE_MAX_FRAMES = 30  # ~150ms at 5ms/frame
 
 
 class AudioQueue:
@@ -322,14 +322,19 @@ class UDPSender:
             muted = self._muted
             gain = self._volume_gain
 
-        if muted:
+        if muted or gain <= 0.001:
             pcm_frame = b'\x00' * len(pcm_frame)
         elif abs(gain - 1.0) > 0.01:
             try:
                 import numpy as np
-                pcm_arr = np.frombuffer(pcm_frame, dtype="<i2").astype(np.float32)
-                pcm_arr = np.clip(pcm_arr * gain, -32768, 32767).astype(np.int16)
-                pcm_frame = pcm_arr.tobytes()
+                pcm_arr = np.frombuffer(pcm_frame, dtype="<i2").astype(np.float32) * gain
+                if gain > 1.0:
+                    # Soft-knee limiting above 100% so 100%-200% boost never clips harshly
+                    norm = pcm_arr / 32767.0
+                    pcm_arr = np.tanh(norm) * 32767.0
+                else:
+                    pcm_arr = np.clip(pcm_arr, -32768.0, 32767.0)
+                pcm_frame = pcm_arr.astype("<i2").tobytes()
             except Exception:
                 pass
 
@@ -338,7 +343,6 @@ class UDPSender:
             if encoded is not None:
                 header = build_header(seq, ts, CODEC_OPUS)
                 return header + encoded
-            # Fall back to PCM on encode error
             logger.warning("Opus encode failed, sending PCM")
 
         header = build_header(seq, ts, CODEC_PCM16)
@@ -351,7 +355,7 @@ class UDPSender:
         with self._lock:
             frame_ms = self._frame_ms
         interval = frame_ms / 1000.0
-        silence_threshold = max(0.010, interval * 1.5)
+        silence_threshold = 0.085  # Only send keep-alive silence after 85ms of true audio silence (never between 10-20ms WASAPI callbacks!)
         silence_frame = (
             SILENCE_PCM_20MS if frame_ms == 20
             else (SILENCE_PCM_10MS if frame_ms == 10 else SILENCE_PCM_5MS)
@@ -371,7 +375,7 @@ class UDPSender:
                 if self._frame_ms != frame_ms:
                     frame_ms = self._frame_ms
                     interval = frame_ms / 1000.0
-                    silence_threshold = max(0.010, interval * 1.5)
+                    silence_threshold = 0.085
                     silence_frame = (
                         SILENCE_PCM_20MS if frame_ms == 20
                         else (SILENCE_PCM_10MS if frame_ms == 10 else SILENCE_PCM_5MS)
@@ -506,6 +510,22 @@ class ControlListener:
                         if self._on_beacon:
                             self._on_beacon(msg)
                     elif msg_type == "STATS" and self._on_stats:
+                        now_ms = current_timestamp_ms()
+                        echo_ts = msg.get("echo_pc_ts", 0)
+                        hold_ms = msg.get("hold_ms", 0)
+                        if isinstance(echo_ts, int) and echo_ts > 0:
+                            rtt = ((now_ms - echo_ts) & 0xFFFFFFFF) - int(hold_ms)
+                            if 0 <= rtt <= 500:
+                                msg["_net_oneway_ms"] = max(1.0, rtt / 2.0)
+                        try:
+                            ping_pkt = json.dumps({
+                                "type": "PING",
+                                "pc_ts": now_ms,
+                                "pc_name": socket.gethostname(),
+                            }).encode("utf-8")
+                            self._sock.sendto(ping_pkt, (addr[0], self._bind_port))
+                        except Exception:
+                            pass
                         self._on_stats(msg)
                     elif msg_type == "CONFIG_SYNC" and self._on_config_sync:
                         self._on_config_sync(msg)
@@ -523,7 +543,10 @@ def send_control_message(target_ip: str, msg: dict, port: int = CONTROL_PORT) ->
     if not target_ip:
         return False
     try:
-        data = json.dumps(msg).encode("utf-8")
+        payload = dict(msg)
+        payload.setdefault("app", "PhoneSpeakerPC")
+        payload.setdefault("pc_name", socket.gethostname())
+        data = json.dumps(payload).encode("utf-8")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.sendto(data, (target_ip, port))

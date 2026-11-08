@@ -364,6 +364,49 @@ def test_win_volume() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 10: PhoneAudioReceiver receives burst packets without drops
+# ---------------------------------------------------------------------------
+def test_phone_mic_receiver_no_drops() -> None:
+    name = "PhoneAudioReceiver receives burst UDP packets without drops"
+    try:
+        from audio_output import PhoneAudioReceiver
+        from protocol import build_silence_packet
+
+        # Pick ephemeral port
+        s_test = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s_test.bind(("", 0))
+        test_port = s_test.getsockname()[1]
+        s_test.close()
+
+        rx = PhoneAudioReceiver(port=test_port)
+        if not rx.start():
+            check(name, False, "PhoneAudioReceiver failed to start")
+            return
+
+        time.sleep(0.05)
+
+        # Send 20 back-to-back 972-byte packets
+        tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        packet = build_silence_packet(seq=1)  # 972 bytes
+        num_packets = 20
+        for seq in range(1, num_packets + 1):
+            tx_sock.sendto(packet, ("127.0.0.1", test_port))
+        tx_sock.close()
+
+        # Wait up to 500ms for rx loop to receive packets
+        deadline = time.monotonic() + 0.50
+        while time.monotonic() < deadline and rx._pps_count < num_packets:
+            time.sleep(0.01)
+
+        received = rx._pps_count
+        rx.stop()
+
+        check(name, received == num_packets, f"sent {num_packets}, received {received} packets")
+    except Exception as exc:
+        check(name, False, str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -382,6 +425,7 @@ def main() -> None:
     test_udp_localhost_integration()
     test_protocol_v2_and_sync()
     test_win_volume()
+    test_phone_mic_receiver_no_drops()
 
     print()
     print("=" * 60)

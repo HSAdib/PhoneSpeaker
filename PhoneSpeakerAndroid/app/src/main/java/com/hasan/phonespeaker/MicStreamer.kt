@@ -5,7 +5,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import java.net.DatagramPacket
@@ -23,20 +25,21 @@ class MicStreamer {
     private val TAG = "MicStreamer"
 
     private val sampleRate = 48000
-    private val channels = 2
+    private val outChannels = 2
     private val frameMs = 5
     private val samplesPerCh = (sampleRate * frameMs) / 1000 // 240 samples
-    private val payloadSize = samplesPerCh * channels * 2    // 960 bytes
+    private val payloadSize = samplesPerCh * outChannels * 2 // 960 bytes stereo
 
     private val isRunning = AtomicBoolean(false)
     private var workerThread: Thread? = null
     private var audioRecord: AudioRecord? = null
     private var noiseSuppressor: NoiseSuppressor? = null
     private var echoCanceler: AcousticEchoCanceler? = null
+    private var agc: AutomaticGainControl? = null
 
     val txPps = AtomicInteger(0)
     private val ppsCounter = AtomicInteger(0)
-    private var actualInputChannels = 2
+    private var actualInputChannels = 1
 
     @Volatile
     var dynamicTargetIp: String = "255.255.255.255"
@@ -56,18 +59,31 @@ class MicStreamer {
 
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         var record: AudioRecord? = null
-        val audioSources = listOf(
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION
-        )
+
+        // Prefer VOICE_RECOGNITION / MIC in MONO first to avoid dual-mic phase cancellation on Xiaomi/Qualcomm
+        val audioSources = if (enableFx) {
+            listOf(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.DEFAULT
+            )
+        } else {
+            listOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.DEFAULT
+            )
+        }
+
         for (source in audioSources) {
-            for (chCount in listOf(2, 1)) {
-                val chConfig = if (chCount == 2) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
+            // Always try MONO (1) first for clean primary-mic voice capture, then STEREO (2) fallback
+            for (chCount in listOf(1, 2)) {
+                val chConfig = if (chCount == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
                 val minBuf = AudioRecord.getMinBufferSize(sampleRate, chConfig, audioFormat)
                 if (minBuf <= 0) continue
                 val frameBytes = samplesPerCh * chCount * 2
-                val bufferSize = maxOf(minBuf * 2, frameBytes * 10)
+                val bufferSize = maxOf(minBuf * 3, frameBytes * 16)
                 try {
                     val candidate = AudioRecord(
                         source,
@@ -79,6 +95,7 @@ class MicStreamer {
                     if (candidate.state == AudioRecord.STATE_INITIALIZED) {
                         record = candidate
                         actualInputChannels = chCount
+                        Log.i(TAG, "Initialized AudioRecord: source=$source, channels=$chCount, buf=$bufferSize")
                         break
                     } else {
                         candidate.release()
@@ -89,7 +106,7 @@ class MicStreamer {
         }
 
         if (record == null) {
-            Log.e(TAG, "AudioRecord failed to initialize in both stereo and mono")
+            Log.e(TAG, "AudioRecord failed to initialize")
             return false
         }
 
@@ -103,6 +120,9 @@ class MicStreamer {
                     }
                     if (AcousticEchoCanceler.isAvailable()) {
                         echoCanceler = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
+                    }
+                    if (AutomaticGainControl.isAvailable()) {
+                        agc = AutomaticGainControl.create(sessionId)?.apply { enabled = true }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not attach audio effects: ${e.message}")
@@ -122,7 +142,7 @@ class MicStreamer {
             workerThread = thread(name = "MicStreamerThread", isDaemon = true) {
                 runLoop(targetPort)
             }
-            Log.i(TAG, "MicStreamer started streaming to $dynamicTargetIp:$targetPort (channels=$actualInputChannels)")
+            Log.i(TAG, "MicStreamer started streaming to $dynamicTargetIp:$targetPort (inChannels=$actualInputChannels)")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start MicStreamer", e)
@@ -162,22 +182,28 @@ class MicStreamer {
         return results
     }
 
-    private fun readFullBuffer(rec: AudioRecord, buf: ByteArray, size: Int): Boolean {
+    private fun readFullShorts(rec: AudioRecord, buf: ShortArray, count: Int): Boolean {
         var offset = 0
-        while (offset < size && isRunning.get()) {
-            val r = rec.read(buf, offset, size - offset, AudioRecord.READ_BLOCKING)
+        while (offset < count && isRunning.get()) {
+            val r = rec.read(buf, offset, count - offset, AudioRecord.READ_BLOCKING)
             if (r <= 0) return false
             offset += r
         }
-        return offset == size
+        return offset == count
     }
 
     private fun runLoop(targetPort: Int) {
-        val socket = DatagramSocket().apply { broadcast = true }
-        val headerBuffer = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN)
-        val readBuffer = ByteArray(payloadSize)
-        val monoBuffer = if (actualInputChannels == 1) ByteArray(samplesPerCh * 2) else null
+        try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        } catch (_: Exception) {}
+
+        val socket = DatagramSocket().apply {
+            broadcast = true
+            sendBufferSize = 262144
+        }
         val packetData = ByteArray(12 + payloadSize)
+        val packetBuf = ByteBuffer.wrap(packetData).order(ByteOrder.LITTLE_ENDIAN)
+        val inShorts = ShortArray(samplesPerCh * actualInputChannels)
 
         var seq = 0
         var lastPpsTime = SystemClock.elapsedRealtime()
@@ -187,7 +213,6 @@ class MicStreamer {
         while (isRunning.get()) {
             val rec = audioRecord ?: break
 
-            // Resolve PC target IP dynamically
             if (dynamicTargetIp == "255.255.255.255" || dynamicTargetIp.isBlank()) {
                 val discovered = AudioStreamService.activeControlChannel?.getActivePcIp()
                     ?: AudioNative.nativeGetSenderIp()
@@ -197,34 +222,30 @@ class MicStreamer {
                 }
             }
 
-            val ok: Boolean = if (actualInputChannels == 1 && monoBuffer != null) {
-                if (readFullBuffer(rec, monoBuffer, monoBuffer.size)) {
-                    val sampleCount = samplesPerCh
-                    for (i in 0 until sampleCount) {
-                        val b0 = monoBuffer[i * 2]
-                        val b1 = monoBuffer[i * 2 + 1]
-                        readBuffer[i * 4] = b0
-                        readBuffer[i * 4 + 1] = b1
-                        readBuffer[i * 4 + 2] = b0
-                        readBuffer[i * 4 + 3] = b1
-                    }
-                    true
-                } else false
-            } else {
-                readFullBuffer(rec, readBuffer, payloadSize)
-            }
-
-            if (ok) {
+            if (readFullShorts(rec, inShorts, inShorts.size)) {
                 val nowMs = (SystemClock.elapsedRealtime() and 0xFFFFFFFFL).toInt()
-                headerBuffer.clear()
-                headerBuffer.putInt(seq++)
-                headerBuffer.putInt(nowMs)
-                headerBuffer.put(0.toByte())         // CODEC_PCM16
-                headerBuffer.put(channels.toByte())  // 2 channels
-                headerBuffer.putShort(480.toShort()) // 48000 / 100
+                packetBuf.clear()
+                packetBuf.putInt(seq++)
+                packetBuf.putInt(nowMs)
+                packetBuf.put(0.toByte())            // CODEC_PCM16
+                packetBuf.put(outChannels.toByte())  // 2 stereo channels
+                packetBuf.putShort(480.toShort())    // 48000 / 100
 
-                System.arraycopy(headerBuffer.array(), 0, packetData, 0, 12)
-                System.arraycopy(readBuffer, 0, packetData, 12, payloadSize)
+                if (actualInputChannels == 1) {
+                    for (i in 0 until samplesPerCh) {
+                        // Clean 1.25x voice boost with clamp
+                        val boosted = ((inShorts[i].toInt() * 5) shr 2).coerceIn(-32768, 32767).toShort()
+                        packetBuf.putShort(boosted)
+                        packetBuf.putShort(boosted)
+                    }
+                } else {
+                    for (i in 0 until samplesPerCh) {
+                        val sL = inShorts[i * 2].toInt()
+                        val sR = inShorts[i * 2 + 1].toInt()
+                        packetBuf.putShort(sL.coerceIn(-32768, 32767).toShort())
+                        packetBuf.putShort(sR.coerceIn(-32768, 32767).toShort())
+                    }
+                }
 
                 try {
                     val currentIp = dynamicTargetIp
@@ -263,9 +284,11 @@ class MicStreamer {
         try {
             noiseSuppressor?.release()
             echoCanceler?.release()
+            agc?.release()
         } catch (_: Exception) {}
         noiseSuppressor = null
         echoCanceler = null
+        agc = null
 
         try {
             audioRecord?.stop()
