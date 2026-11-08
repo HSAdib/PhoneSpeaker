@@ -34,11 +34,14 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
 ### 1. Android Installation
 
 **Supported Android Versions:**
-- **Android 8.0 (Oreo, API 26)** through **Android 14 & 15+**.
-- Compatible with all ARM64, ARMv7, x86, and x86_64 phones and tablets.
+- **Lowest / Minimum Version:** **Android 8.0 (Oreo, API 26)**
+  - *Why Android 8.0?* The low-latency native **AAudio** C-API (which powers the high-performance Oboe audio engine) and modern background foreground notification channels require API 26+. Older Android versions (7.x Nougat and below) are not supported.
+- **Supported Range:** **Android 8.0 (API 26)** through **Android 14 & 15+**.
+- **Supported Architectures:** Compatible with all **ARM64** (`arm64-v8a`), **ARMv7** (`armeabi-v7a`), **x86_64**, and **x86** devices (smartphones, tablets, Android TV, and emulators).
 
 **Download APK:**
-Grab the latest **`PhoneSpeaker v2.apk`** from [Releases](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0).
+- 📦 **Direct Download:** [**`PhoneSpeaker v2.apk`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker%20v2.apk)
+- 🏷️ **GitHub Releases:** [View All Releases](https://github.com/HSAdib/PhoneSpeaker/releases)
 
 **How to Install on Phone:**
 - **Direct File Transfer (Simplest):** Send `PhoneSpeaker v2.apk` to your phone via Google Drive, Quick Share, Telegram, or USB cable. Tap the downloaded file and select *Install* (allow *Install unknown apps* for your browser/file manager if prompted).
@@ -72,7 +75,8 @@ The APK is generated at `PhoneSpeakerAndroid/app/build/outputs/apk/debug/app-deb
 - **Windows 11** & **Windows 10** (64-bit).
 
 **Download Windows Binary:**
-Download **`PhoneSpeaker v2.exe`** from [Releases](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0).
+- 📦 **Direct Download:** [**`PhoneSpeaker v2.exe`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker%20v2.exe)
+- 🏷️ **GitHub Releases:** [View All Releases](https://github.com/HSAdib/PhoneSpeaker/releases)
 
 **How to Run:**
 - **No installation required!** `PhoneSpeaker v2.exe` is a standalone, single-file executable with bundled 64-bit `opus.dll` and zero external dependencies.
@@ -125,7 +129,7 @@ curl -sSL https://raw.githubusercontent.com/HSAdib/PhoneSpeaker/main/install_lin
 
 #### Method B: Using the Downloaded `.run` Installer
 
-1. Download **`PhoneSpeaker-v2-Linux-Installer.run`** from [Releases](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0).
+1. Download [**`PhoneSpeaker-v2-Linux-Installer.run`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-Linux-Installer.run) from [GitHub Releases](https://github.com/HSAdib/PhoneSpeaker/releases).
 2. Install per your distro:
 
 ##### • Ubuntu & Linux Mint:
