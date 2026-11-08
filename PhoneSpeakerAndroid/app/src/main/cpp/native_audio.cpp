@@ -93,6 +93,8 @@ bool NativeAudioEngine::openAndStartOboeStream() {
     builder.setFormat(oboe::AudioFormat::I16)
         ->setChannelCount(oboe::ChannelCount::Stereo)
         ->setSampleRate(48000)
+        ->setUsage(oboe::Usage::Media)
+        ->setContentType(oboe::ContentType::Music)
         ->setDataCallback(this)
         ->setErrorCallback(this);
 
@@ -134,8 +136,15 @@ bool NativeAudioEngine::openAndStartOboeStream() {
 void NativeAudioEngine::closeOboeStream() {
     std::lock_guard<std::mutex> lock(mStreamMutex);
     if (mAudioStream) {
-        mAudioStream->stop();
-        mAudioStream->close();
+        oboe::StreamState state = mAudioStream->getState();
+        if (state != oboe::StreamState::Closed && state != oboe::StreamState::Disconnected && state != oboe::StreamState::Stopping) {
+            try {
+                mAudioStream->stop();
+            } catch (...) {}
+        }
+        try {
+            mAudioStream->close();
+        } catch (...) {}
         mAudioStream.reset();
     }
 }
@@ -214,8 +223,11 @@ void NativeAudioEngine::socketReceiverLoop() {
 oboe::DataCallbackResult NativeAudioEngine::onAudioReady(oboe::AudioStream* /*stream*/,
                                                          void* audioData,
                                                          int32_t numFrames) {
+    if (!audioData || numFrames <= 0) {
+        return oboe::DataCallbackResult::Continue;
+    }
     int16_t* pcmOut = static_cast<int16_t*>(audioData);
-    if (mMuted.load()) {
+    if (mMuted.load() || mVolumeGain.load() <= 0.0001f) {
         std::memset(pcmOut, 0, numFrames * 2 * sizeof(int16_t));
         return oboe::DataCallbackResult::Continue;
     }
@@ -237,7 +249,11 @@ void NativeAudioEngine::onErrorAfterClose(oboe::AudioStream* /*stream*/, oboe::R
     LOGI("Audio stream error after close: %s. Reopening stream.", oboe::convertToText(result));
     if (mIsRunning.load()) {
         if (mReopenThread.joinable()) {
-            mReopenThread.join();
+            if (mReopenThread.get_id() == std::this_thread::get_id()) {
+                mReopenThread.detach();
+            } else {
+                mReopenThread.join();
+            }
         }
         mReopenThread = std::thread([this]() {
             if (mIsRunning.load()) {

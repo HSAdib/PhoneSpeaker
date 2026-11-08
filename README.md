@@ -10,10 +10,13 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
 
 ## Contents
 
+- [Install and build](#install-and-build)
+  - [1. Android Installation](#1-android-installation)
+  - [2. Windows Installation](#2-windows-installation)
+  - [3. Linux Distros Installation](#3-linux-distros-installation)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
-- [Install and build](#install-and-build)
 - [Using it](#using-it)
 - [Suggested settings per connection](#suggested-settings-per-connection)
 - [Wire protocol](#wire-protocol)
@@ -21,73 +24,6 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
 - [Troubleshooting](#troubleshooting)
 - [Limitations and security](#limitations-and-security)
 - [Credits](#credits)
-
----
-
-## Features
-
-**Streaming**
-- **PC → Phone speaker:** captures everything your PC plays and plays it on the phone.
-- **Phone → PC microphone:** streams the phone mic to the PC. Route it into Discord, Zoom, Teams or OBS through a virtual device.
-- **Full-duplex:** speaker and microphone at the same time.
-- **Dual-speaker sync:** play on the phone and on a PC output device together, with an adjustable PC-side delay (0 to 150 ms) so the two line up.
-- **PC-only routing:** mirror to a PC output device without sending to the phone.
-
-**Audio quality**
-- **PCM16** lossless (48 kHz stereo) or **Opus** with 10, 24, 32, 64, 96, 128, 160, 192 or 256 kbps and 5, 10 or 20 ms frames.
-- Any Windows playback format (float32, int16, int24, int32; 44.1, 48, 96 kHz) is converted to 48 kHz stereo, with `soxr` resampling when available.
-- Silence keep-alive keeps the phone's clock running when nothing is playing.
-
-**Playout and robustness (Android)**
-- Native **Oboe** output (low-latency, exclusive mode when the device allows) with a standard shared mode for compatibility.
-- Adaptive **jitter buffer** with packet reordering, late-packet dropping and gap concealment. Presets: Low 20 ms, Medium 40 ms, High 80 ms, Auto (+5 ms on underrun, -2.5 ms when clean), or a custom 10 to 200 ms target.
-- Opus in-band FEC and packet-loss concealment.
-- Foreground service with wake lock and Wi-Fi low-latency lock, so audio keeps playing with the screen off.
-- Volume boost 0 to 200%, mute, optional Loudness Enhancer, and audio-focus behaviour: mix with others, pause when another app plays, or always play.
-
-**Control and sync**
-- **Two-way settings sync:** change codec, bitrate, buffer, gain, mute, routing or stream mode on either device and the other follows. A revision counter decides which change is newer.
-- **Auto-discovery:** the phone broadcasts a beacon, and the PC fills in the phone's IP, preferring an address on the same subnet as your chosen adapter.
-- **Live telemetry:** buffer level, target, underruns, lost and late packets, packets per second, and a live delay graph on both sides.
-- **System volume sync:** optionally follows the Windows sound bar or Linux default sink volume.
-
-**Desktop app**
-- Black-and-white Tk interface with three tabs: Stream / Roles, Audio & Buffer, Virtual Device.
-- Virtual-adapter filtering (VirtualBox `192.168.56.x`, VMware, Hyper-V, WSL and similar) so you always see your real LAN IP.
-- One-click firewall rules, system-tray mode, built-in help dialog.
-- High process priority and 1 ms timer resolution on Windows.
-
----
-
-## How it works
-
-```
- PC (Windows / Linux)                                   Phone (Android)
- ┌────────────────────────────┐   UDP 5004 audio        ┌──────────────────────────┐
- │ WASAPI loopback / parec    │ ──────────────────────▶ │ jitter buffer → Oboe     │
- │ resample → PCM16 / Opus    │                         │ (speaker)                │
- │                            │   UDP 5006 audio        │                          │
- │ decode → output device /   │ ◀────────────────────── │ AudioRecord (mic) →      │
- │ virtual mic                │                         │ UDP sender               │
- │                            │   UDP 5005 control JSON │                          │
- │ settings, discovery, stats │ ◀─────────────────────▶ │ beacon, stats, settings  │
- └────────────────────────────┘                         └──────────────────────────┘
-```
-
-Every connection type (Wi-Fi router, phone hotspot, USB tethering, Bluetooth PAN) is just an IP network, so the same three UDP ports serve all of them.
-
----
-
-## Quick start
-
-1. Put the PC and the phone on the **same network**: same Wi-Fi, the phone's hotspot, or a USB or Bluetooth tether.
-2. Install the Android app and the desktop app (see [Install and build](#install-and-build)).
-3. On the phone, open **PhoneSpeaker** and tap **Start speaker player (port 5004)**.
-4. On the PC, open **PhoneSpeaker**. The phone should appear under **Connections** within a second or two. If it doesn't, type the phone's IP into **Phone IP / Port**.
-5. Click **Start speaker stream (PC → Phone)**. Play something on the PC.
-6. Watch the **Audio Level** bar on the PC and the **RX packets / sec** counter on the phone. Both should move.
-
-For the microphone: tap **Start mic stream to PC (port 5006)** on the phone, or use the mic button on the PC. See [Phone as a PC microphone](#phone-as-a-pc-microphone).
 
 ---
 
@@ -267,6 +203,73 @@ sudo ufw allow 5004/udp && sudo ufw allow 5005/udp && sudo ufw allow 5006/udp
 # or
 sudo firewall-cmd --add-port=5004/udp --add-port=5005/udp --add-port=5006/udp --permanent && sudo firewall-cmd --reload
 ```
+
+---
+
+## Features
+
+**Streaming**
+- **PC → Phone speaker:** captures everything your PC plays and plays it on the phone.
+- **Phone → PC microphone:** streams the phone mic to the PC. Route it into Discord, Zoom, Teams or OBS through a virtual device.
+- **Full-duplex:** speaker and microphone at the same time.
+- **Dual-speaker sync:** play on the phone and on a PC output device together, with an adjustable PC-side delay (0 to 150 ms) so the two line up.
+- **PC-only routing:** mirror to a PC output device without sending to the phone.
+
+**Audio quality**
+- **PCM16** lossless (48 kHz stereo) or **Opus** with 10, 24, 32, 64, 96, 128, 160, 192 or 256 kbps and 5, 10 or 20 ms frames.
+- Any Windows playback format (float32, int16, int24, int32; 44.1, 48, 96 kHz) is converted to 48 kHz stereo, with `soxr` resampling when available.
+- Silence keep-alive keeps the phone's clock running when nothing is playing.
+
+**Playout and robustness (Android)**
+- Native **Oboe** output (low-latency, exclusive mode when the device allows) with a standard shared mode for compatibility.
+- Adaptive **jitter buffer** with packet reordering, late-packet dropping and gap concealment. Presets: Low 20 ms, Medium 40 ms, High 80 ms, Auto (+5 ms on underrun, -2.5 ms when clean), or a custom 10 to 200 ms target.
+- Opus in-band FEC and packet-loss concealment.
+- Foreground service with wake lock and Wi-Fi low-latency lock, so audio keeps playing with the screen off.
+- Volume boost 0 to 200%, mute, optional Loudness Enhancer, and audio-focus behaviour: mix with others, pause when another app plays, or always play.
+
+**Control and sync**
+- **Two-way settings sync:** change codec, bitrate, buffer, gain, mute, routing or stream mode on either device and the other follows. A revision counter decides which change is newer.
+- **Auto-discovery:** the phone broadcasts a beacon, and the PC fills in the phone's IP, preferring an address on the same subnet as your chosen adapter.
+- **Live telemetry:** buffer level, target, underruns, lost and late packets, packets per second, and a live delay graph on both sides.
+- **System volume sync:** optionally follows the Windows sound bar or Linux default sink volume.
+
+**Desktop app**
+- Black-and-white Tk interface with three tabs: Stream / Roles, Audio & Buffer, Virtual Device.
+- Virtual-adapter filtering (VirtualBox `192.168.56.x`, VMware, Hyper-V, WSL and similar) so you always see your real LAN IP.
+- One-click firewall rules, system-tray mode, built-in help dialog.
+- High process priority and 1 ms timer resolution on Windows.
+
+---
+
+## How it works
+
+```
+ PC (Windows / Linux)                                   Phone (Android)
+ ┌────────────────────────────┐   UDP 5004 audio        ┌──────────────────────────┐
+ │ WASAPI loopback / parec    │ ──────────────────────▶ │ jitter buffer → Oboe     │
+ │ resample → PCM16 / Opus    │                         │ (speaker)                │
+ │                            │   UDP 5006 audio        │                          │
+ │ decode → output device /   │ ◀────────────────────── │ AudioRecord (mic) →      │
+ │ virtual mic                │                         │ UDP sender               │
+ │                            │   UDP 5005 control JSON │                          │
+ │ settings, discovery, stats │ ◀─────────────────────▶ │ beacon, stats, settings  │
+ └────────────────────────────┘                         └──────────────────────────┘
+```
+
+Every connection type (Wi-Fi router, phone hotspot, USB tethering, Bluetooth PAN) is just an IP network, so the same three UDP ports serve all of them.
+
+---
+
+## Quick start
+
+1. Put the PC and the phone on the **same network**: same Wi-Fi, the phone's hotspot, or a USB or Bluetooth tether.
+2. Install the Android app and the desktop app (see [Install and build](#install-and-build)).
+3. On the phone, open **PhoneSpeaker** and tap **Start speaker player (port 5004)**.
+4. On the PC, open **PhoneSpeaker**. The phone should appear under **Connections** within a second or two. If it doesn't, type the phone's IP into **Phone IP / Port**.
+5. Click **Start speaker stream (PC → Phone)**. Play something on the PC.
+6. Watch the **Audio Level** bar on the PC and the **RX packets / sec** counter on the phone. Both should move.
+
+For the microphone: tap **Start mic stream to PC (port 5006)** on the phone, or use the mic button on the PC. See [Phone as a PC microphone](#phone-as-a-pc-microphone).
 
 ---
 

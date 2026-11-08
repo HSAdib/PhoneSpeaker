@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +15,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
@@ -156,6 +158,11 @@ class MainActivity : AppCompatActivity() {
         return (kotlin.math.round(clamped / 2.5f) * 2.5f).coerceIn(10f, 200f)
     }
 
+    private fun quantizeGain(value: Float): Float {
+        val safe = if (value.isFinite()) value else 1.0f
+        return safe.coerceIn(0f, 2.0f)
+    }
+
     @Synchronized
     private fun startPreStreamDiscoveryIfNeeded() {
         if (!AudioStreamService.isStreaming && !AudioStreamService.isMicStreaming && preStreamDiscoveryChannel == null) {
@@ -186,6 +193,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        volumeControlStream = AudioManager.STREAM_MUSIC
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -193,6 +201,16 @@ class MainActivity : AppCompatActivity() {
         setupUI()
         checkPermissions()
         refreshLocalIps()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) AudioManager.ADJUST_LOWER else AudioManager.ADJUST_RAISE
+            am?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onStart() {
@@ -392,8 +410,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Gain slider & Mute
-        binding.sliderGain.value = AudioNative.nativeGetVolumeGain()
-        binding.tvGainValue.text = "${(binding.sliderGain.value * 100).toInt()}%"
+        try {
+            binding.sliderGain.value = quantizeGain(AudioNative.nativeGetVolumeGain())
+            binding.tvGainValue.text = "${(binding.sliderGain.value * 100).toInt()}%"
+        } catch (_: Exception) {}
         binding.sliderGain.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 AudioNative.nativeSetVolumeGain(value)
@@ -589,8 +609,12 @@ class MainActivity : AppCompatActivity() {
             }
             if (json.has("volume_gain")) {
                 val g = json.getDouble("volume_gain").toFloat()
-                binding.sliderGain.value = g.coerceIn(0f, 2f)
-                binding.tvGainValue.text = "${(g * 100).toInt()}%"
+                try {
+                    binding.sliderGain.value = quantizeGain(g)
+                    binding.tvGainValue.text = "${(g * 100).toInt()}%"
+                } catch (e: Exception) {
+                    Log.w("PhoneSpeaker", "Could not set sliderGain value: ${e.message}")
+                }
                 AudioNative.nativeSetVolumeGain(g)
             }
             if (json.has("muted")) {

@@ -84,7 +84,11 @@ class AudioStreamService : Service() {
         Log.d(TAG, "AudioStreamService.onCreate")
         createNotificationChannel()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        }
     }
 
     override fun onDestroy() {
@@ -385,19 +389,23 @@ class AudioStreamService : Service() {
             audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(playbackAttributes)
                 .setOnAudioFocusChangeListener { focusChange ->
-                    when (focusChange) {
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                            AudioNative.nativeSetMuted(true)
-                        }
-                        AudioManager.AUDIOFOCUS_GAIN,
-                        AudioManager.AUDIOFOCUS_LOSS,
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                            if (exclusiveAudioMode == "EXCLUSIVE" && focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                    try {
+                        when (focusChange) {
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                                 AudioNative.nativeSetMuted(true)
-                            } else {
-                                AudioNative.nativeSetMuted(false)
+                            }
+                            AudioManager.AUDIOFOCUS_GAIN,
+                            AudioManager.AUDIOFOCUS_LOSS,
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                                if (exclusiveAudioMode == "EXCLUSIVE" && focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                                    AudioNative.nativeSetMuted(true)
+                                } else {
+                                    AudioNative.nativeSetMuted(false)
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in onAudioFocusChangeListener: ${e.message}")
                     }
                 }
                 .build()
