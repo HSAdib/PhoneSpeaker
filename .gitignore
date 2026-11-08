@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+.venv/
+.venv*/
+venv/
+env/
+*.log
+
+# PyInstaller build outputs
+phonespeaker-pc/build/
+phonespeaker-pc/dist/
+
+# Android & Gradle
+.gradle/
+**/build/
+.cxx/
+local.properties
+gradle-8.7/
+PhoneSpeakerAndroid/.gradle/
+PhoneSpeakerAndroid/app/build/
+PhoneSpeakerAndroid/app/.cxx/
+
+# IDEs & OS
+.idea/
+*.iml
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Temporary dumps and archives
+code_dump_part*.txt
+cmdline-tools.zip
+diagnostic.wav
+app-debug.apk
+PhoneSpeaker_old.exe
+

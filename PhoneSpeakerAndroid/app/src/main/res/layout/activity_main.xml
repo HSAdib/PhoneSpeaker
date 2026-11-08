@@ -1,0 +1,863 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="PHONESPEAKER v2.0"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <TextView
+                android:id="@+id/tvSyncRev"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="REV: 1"
+                android:textColor="#888888"
+                android:textSize="11sp"
+                android:fontFamily="monospace" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnHelp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="42dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:padding="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="?"
+                android:textColor="#00FF00"
+                app:strokeColor="#00FF00"
+                app:strokeWidth="1dp"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="STATUS: STOPPED"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:fontFamily="monospace" />
+
+        <!-- Tab Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="10dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tabBtnPlayer"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="PLAYER"
+                android:textColor="#FFFFFF"
+                app:strokeColor="#FFFFFF"
+                app:strokeWidth="2dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tabBtnServer"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="SERVER"
+                android:textColor="#888888"
+                app:strokeColor="#444444"
+                app:strokeWidth="1dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tabBtnSettings"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="SETTINGS"
+                android:textColor="#888888"
+                app:strokeColor="#444444"
+                app:strokeWidth="1dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- ============================================================= -->
+        <!-- TAB 1: PLAYER CONTAINER -->
+        <!-- ============================================================= -->
+        <LinearLayout
+            android:id="@+id/layoutPlayerTab"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Connections Card -->
+            <LinearLayout
+                android:id="@+id/cardConnections"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#1A2630"
+                android:padding="10dp"
+                android:layout_marginBottom="10dp">
+
+                <TextView
+                    android:id="@+id/tvConnectedDeviceTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="💻 Connected PC: Searching..."
+                    android:textColor="#38B6FF"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/tvConnectedDeviceSub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="📱 This Phone: Detecting..."
+                    android:textColor="#99AABB"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <!-- Connected PC IP input & connect -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PC IP: "
+                        android:textColor="#38B6FF"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etPcIp"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_weight="1"
+                        android:background="#101820"
+                        android:textColor="#FFFFFF"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:hint="Waiting for PC..."
+                        android:textColorHint="#557788"
+                        android:textSize="13sp"
+                        android:fontFamily="monospace"
+                        android:inputType="textUri" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnToggleStream"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:backgroundTint="#002200"
+                app:strokeColor="#00FF00"
+                app:strokeWidth="2dp"
+                android:text="[ ▶ START SPEAKER PLAYER (PORT 5004) ]"
+                android:textColor="#00FF00"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <Button
+                android:id="@+id/btnToggleMicMain"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="6dp"
+                android:backgroundTint="#001822"
+                app:strokeColor="#00EEEE"
+                app:strokeWidth="2dp"
+                android:text="[ 🎤 START MIC STREAM TO PC (PORT 5006) ]"
+                android:textColor="#00EEEE"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <!-- Codec & Bitrate Quick Controls -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="CODEC &amp; BITRATE:"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgPlayerCodec"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbPlayerCodecOpus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Opus"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbPlayerCodecPcm"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="Lossless PCM16"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <LinearLayout
+                android:id="@+id/layoutPlayerBitrate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="BITRATE: "
+                    android:textColor="#888888"
+                    android:fontFamily="monospace" />
+
+                <Spinner
+                    android:id="@+id/spPlayerBitrate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:minWidth="120dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:background="#181818" />
+            </LinearLayout>
+
+            <!-- Expected Delay Display -->
+            <TextView
+                android:id="@+id/tvExpectedDelay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Expected Delay: ~55 ms"
+                android:textColor="#00EEEE"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <!-- Buffer Preset Selector -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="BUFFER PRESET:"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgBufferMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbBufLow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Low (20 ms) — Video &amp; Gaming"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbBufMed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Medium (40 ms) — Balanced"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbBufHigh"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="High (80 ms) — Music Stability"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbBufAuto"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Auto Adaptive (+5 ms / -2.5 ms)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbBufCustom"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Custom Target Buffer"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <!-- Custom Target Buffer Slider -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="TARGET BUFFER:"
+                    android:textColor="#888888"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/tvTargetBufferValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="30 ms"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sliderTargetBuffer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:valueFrom="10.0"
+                android:valueTo="200.0"
+                android:stepSize="2.5"
+                android:value="30.0"
+                app:thumbColor="#FFFFFF"
+                app:trackColorActive="#FFFFFF"
+                app:trackColorInactive="#444444" />
+
+            <!-- Volume / Gain Boost Slider -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="VOLUME / GAIN BOOST:"
+                    android:textColor="#888888"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/tvGainValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="100%"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/sliderGain"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:valueFrom="0.0"
+                    android:valueTo="2.0"
+                    android:stepSize="0.05"
+                    android:value="1.0"
+                    app:thumbColor="#FFFFFF"
+                    app:trackColorActive="#FFFFFF"
+                    app:trackColorInactive="#444444" />
+
+                <Button
+                    android:id="@+id/btnMuteToggle"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="38dp"
+                    android:text="MUTE"
+                    android:textColor="#FFFFFF"
+                    app:strokeColor="#FFFFFF"
+                    android:fontFamily="monospace"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Output Routing Selector -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="SPEAKER ROUTING (SYNCED WITH PC):"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgOutputTargets"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp">
+
+                <RadioButton
+                    android:id="@+id/rbTargetPhone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Phone Speaker Only"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbTargetBoth"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Both Phone + PC Speakers Synced"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbTargetPc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="PC Speaker Only"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <!-- Live Latency & Delay Graph -->
+            <com.hasan.phonespeaker.LatencyGraphView
+                android:id="@+id/latencyGraph"
+                android:layout_width="match_parent"
+                android:layout_height="90dp"
+                android:layout_marginTop="8dp" />
+
+            <!-- Live Telemetry Readout -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="LIVE TELEMETRY (5 Hz)"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <TableLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="#0D0D0D"
+                android:padding="10dp"
+                android:shrinkColumns="0"
+                android:stretchColumns="1">
+
+                <TableRow android:padding="2dp">
+                    <TextView android:text="BUFFER LEVEL:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvBufferLevel" android:text="0.0 ms" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+                <TableRow android:padding="2dp">
+                    <TextView android:text="ACTIVE TARGET:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvActiveTarget" android:text="30.0 ms" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+                <TableRow android:padding="2dp">
+                    <TextView android:text="CODEC:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvCodec" android:text="PCM16" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+                <TableRow android:padding="2dp">
+                    <TextView android:text="RX PACKETS / SEC:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvPps" android:text="0 pps" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+                <TableRow android:padding="2dp">
+                    <TextView android:text="UNDERRUNS:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvUnderruns" android:text="0" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+                <TableRow android:padding="2dp">
+                    <TextView android:text="LOST PACKETS:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvLostPackets" android:text="0" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+                <TableRow android:padding="2dp">
+                    <TextView android:text="LATE PACKETS:" android:textColor="#888888" android:fontFamily="monospace" />
+                    <TextView android:id="@+id/tvLatePackets" android:text="0" android:textColor="#FFFFFF" android:fontFamily="monospace" android:gravity="end" android:paddingEnd="8dp" />
+                </TableRow>
+            </TableLayout>
+        </LinearLayout>
+
+        <!-- ============================================================= -->
+        <!-- TAB 2: SERVER CONTAINER (PHONE MIC -> PC) -->
+        <!-- ============================================================= -->
+        <LinearLayout
+            android:id="@+id/layoutServerTab"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PHONE AUDIO SENDER MODE:"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgServerRole"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbMicOnly"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Microphone (Stream phone mic to PC)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbFullDuplex"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Full-Duplex Headset (PC Audio + Phone Mic)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <!-- Noise suppression switch -->
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchMicFx"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:checked="true"
+                android:text="Hardware Noise Suppression &amp; Echo Canceler"
+                android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                app:useMaterialThemeColors="false"
+                app:thumbTint="#FFFFFF"
+                app:trackTint="#666666" />
+
+            <!-- Mic Start/Stop Button -->
+            <Button
+                android:id="@+id/btnToggleMic"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:backgroundTint="#000000"
+                app:strokeColor="#FFFFFF"
+                app:strokeWidth="2dp"
+                android:text="[ START MIC SERVER (PORT 5006) ]"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <!-- Mic Status Readout -->
+            <TextView
+                android:id="@+id/tvMicStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="MIC SERVER: STOPPED"
+                android:textColor="#888888"
+                android:fontFamily="monospace" />
+
+            <TextView
+                android:id="@+id/tvMicPps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="TX PPS: 0"
+                android:textColor="#888888"
+                android:fontFamily="monospace" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="#111111"
+                android:padding="8dp"
+                android:text="Phone Mic streams 48 kHz stereo low-latency audio to PC Port 5006.\n\nOn PC, set playback device to 'CABLE Input' or 'Virtual Audio' to use this phone as a live microphone in Discord, Teams, Zoom, or games!"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+
+        <!-- ============================================================= -->
+        <!-- TAB 3: SETTINGS CONTAINER -->
+        <!-- ============================================================= -->
+        <LinearLayout
+            android:id="@+id/layoutSettingsTab"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- Audio Quality / Codec -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AUDIO QUALITY (SYNCED WITH PC):"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgCodec"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbCodecOpus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Compressed (Opus — Recommended)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbCodecPcm"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Uncompressed (Lossless PCM16 48 kHz)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <!-- Opus Bitrate Spinner / Chips -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="OPUS BITRATE:"
+                android:textColor="#888888"
+                android:fontFamily="monospace" />
+
+            <Spinner
+                android:id="@+id/spinnerBitrate"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="#111111"
+                android:fontFamily="monospace" />
+
+            <!-- Output Engine -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="AUDIO OUTPUT ENGINE:"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgOutputEngine"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbEngineOboe"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Oboe / AAudio (Low-Latency MMAP)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbEngineAudioTrack"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="AudioTrack Standard Output"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <!-- Audio Effects / Loudness -->
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchAudioFx"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Enable Audio Effects / Equalizer"
+                android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                app:useMaterialThemeColors="false"
+                app:thumbTint="#FFFFFF"
+                app:trackTint="#666666" />
+
+            <!-- Exclusive Audio Mode -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="EXCLUSIVE AUDIO (AUDIO FOCUS):"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <RadioGroup
+                android:id="@+id/rgExclusiveMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp">
+
+                <RadioButton
+                    android:id="@+id/rbFocusMix"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Mix With Others (Listen simultaneously)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbFocusExclusive"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Activated (Mute on other app playback)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+
+                <RadioButton
+                    android:id="@+id/rbFocusAlways"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Always Play (Continue during calls)"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </RadioGroup>
+
+            <!-- Headset disconnect switch -->
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchHeadsetDisconnect"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Pause stream on headset disconnection"
+                android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                app:useMaterialThemeColors="false"
+                app:thumbTint="#FFFFFF"
+                app:trackTint="#666666" />
+
+            <!-- Battery Optimization -->
+            <Button
+                android:id="@+id/btnBatteryOpt"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:strokeColor="#666666"
+                android:textColor="#FFFFFF"
+                android:text="CHECK BATTERY OPTIMIZATION"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <!-- Local IPs Section -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="AVAILABLE ADAPTER IPS:"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace" />
+
+                <Button
+                    android:id="@+id/btnRefreshIps"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="REFRESH"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvIpList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#111111"
+                android:padding="8dp"
+                android:text="Scanning interfaces..."
+                android:textColor="#CCCCCC"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

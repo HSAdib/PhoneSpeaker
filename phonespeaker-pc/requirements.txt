@@ -1,0 +1,8 @@
+PyAudioWPatch
+numpy
+soxr
+pystray
+Pillow
+psutil
+pyinstaller
+requests
