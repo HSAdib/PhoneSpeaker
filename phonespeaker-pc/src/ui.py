@@ -60,12 +60,18 @@ FRAME_SIZES_MS = ["5", "10", "20"]
 # ---------------------------------------------------------------------------
 try:
     import pystray
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageTk
     _TRAY_AVAILABLE = True
-except ImportError:
+except Exception as exc:
     pystray = None
+    try:
+        from PIL import Image, ImageDraw, ImageTk
+    except Exception:
+        Image = None
+        ImageDraw = None
+        ImageTk = None
     _TRAY_AVAILABLE = False
-    logger.warning("pystray/Pillow not available — tray icon disabled")
+    logger.warning("System tray icon unavailable (%s) — running without tray", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -85,18 +91,23 @@ FONT_MONO_LG = (_MONO_FAMILY, 12, "bold")
 FONT_MONO_SM = (_MONO_FAMILY, 9)
 
 
-def _make_tray_image(size: int = 64) -> "Image.Image":
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    body = [(size // 4, size // 3), (size * 2 // 5, size // 3),
-            (size * 2 // 3, size // 6), (size * 2 // 3, size * 5 // 6),
-            (size * 2 // 5, size * 2 // 3), (size // 4, size * 2 // 3)]
-    d.polygon(body, fill="white")
-    cx = size * 2 // 3
-    cy = size // 2
-    for r, lw in [(size // 6, 2), (size // 4, 2)]:
-        d.arc([cx - r, cy - r, cx + r, cy + r], -60, 60, fill="white", width=lw)
-    return img
+def _make_tray_image(size: int = 64) -> Optional["Image.Image"]:
+    if Image is None or ImageDraw is None:
+        return None
+    try:
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        body = [(size // 4, size // 3), (size * 2 // 5, size // 3),
+                (size * 2 // 3, size // 6), (size * 2 // 3, size * 5 // 6),
+                (size * 2 // 5, size * 2 // 3), (size // 4, size * 2 // 3)]
+        d.polygon(body, fill="white")
+        cx = size * 2 // 3
+        cy = size // 2
+        for r, lw in [(size // 6, 2), (size // 4, 2)]:
+            d.arc([cx - r, cy - r, cx + r, cy + r], -60, 60, fill="white", width=lw)
+        return img
+    except Exception:
+        return None
 
 
 class _QueueAdapter:
@@ -210,6 +221,16 @@ class PhoneSpeakerApp:
         self.root.resizable(True, True)
         self.root.minsize(560, 650)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Set window / dock icon
+        try:
+            if ImageTk is not None and Image is not None:
+                tray_img = _make_tray_image(64)
+                if tray_img is not None:
+                    self._app_icon_photo = ImageTk.PhotoImage(tray_img)
+                    self.root.iconphoto(True, self._app_icon_photo)
+        except Exception as exc:
+            logger.debug("Window icon unavailable: %s", exc)
 
         # Ensure Combobox dropdown listboxes use dark theme
         self.root.option_add("*TCombobox*Listbox*Background", "#141414")
@@ -1646,13 +1667,20 @@ PHONESPEAKER v2.0 STUDIO — COMPLETE USER GUIDE (WINDOWS & LINUX)
             self._quit_app()
 
     def _setup_tray(self) -> None:
-        menu = pystray.Menu(
-            pystray.MenuItem("Open", self._on_tray_open, default=True),
-            pystray.MenuItem("Exit", self._on_tray_exit),
-        )
-        img = _make_tray_image(64)
-        self._tray_icon = pystray.Icon("PhoneSpeaker", img, "PhoneSpeaker v2.0", menu)
-        threading.Thread(target=self._tray_icon.run, daemon=True).start()
+        if not _TRAY_AVAILABLE or pystray is None:
+            return
+        try:
+            menu = pystray.Menu(
+                pystray.MenuItem("Open", self._on_tray_open, default=True),
+                pystray.MenuItem("Exit", self._on_tray_exit),
+            )
+            img = _make_tray_image(64)
+            if img is None:
+                return
+            self._tray_icon = pystray.Icon("PhoneSpeaker", img, "PhoneSpeaker v2.0", menu)
+            threading.Thread(target=self._tray_icon.run, daemon=True).start()
+        except Exception as e:
+            logger.warning("Failed to start tray icon: %s", e)
 
     def _on_tray_open(self, icon=None, item=None) -> None:
         self.root.after(0, self._restore_from_tray)

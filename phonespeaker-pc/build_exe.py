@@ -163,48 +163,53 @@ echo "=========================================================="
 
 # 1. Ensure system dependencies (Arch / Debian / Ubuntu / Fedora)
 if command -v pacman >/dev/null 2>&1; then
-    echo "[Arch Linux] Ensuring python, tk, opus, libpulse, portaudio..."
-    sudo pacman -S --needed --noconfirm python tk opus libpulse portaudio
+    echo "[Arch Linux] Installing dependencies via pacman..."
+    sudo pacman -S --needed --noconfirm python tk opus libpulse portaudio python-numpy python-psutil python-pillow
 elif command -v apt-get >/dev/null 2>&1; then
-    echo "[Debian/Ubuntu] Ensuring python3, tk, opus, pulseaudio-utils..."
+    echo "[Debian/Ubuntu] Installing dependencies via apt..."
     sudo apt-get update
-    sudo apt-get install -y python3 python3-venv python3-tk libopus0 pulseaudio-utils portaudio19-dev
+    sudo apt-get install -y python3 python3-venv python3-tk python3-pip python3-numpy python3-psutil python3-pil libopus0 pulseaudio-utils portaudio19-dev
 elif command -v dnf >/dev/null 2>&1; then
-    echo "[Fedora] Ensuring python3, tkinter, opus, pulseaudio-utils..."
-    sudo dnf install -y python3 python3-tkinter opus pulseaudio-utils portaudio-devel
+    echo "[Fedora] Installing dependencies via dnf..."
+    sudo dnf install -y python3 python3-tkinter python3-pip python3-numpy python3-psutil python3-pillow opus pulseaudio-utils portaudio-devel
 fi
 
 INSTALL_DIR="$HOME/.local/opt/phonespeaker"
 BIN_DIR="$HOME/.local/bin"
 APP_DIR="$HOME/.local/share/applications"
-mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$APP_DIR"
+ICON_DIR="$HOME/.local/share/icons"
+mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$APP_DIR" "$ICON_DIR" "$HOME/.config/PhoneSpeaker"
 
 ARCHIVE_LINE=$(awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "$0")
 tail -n+$ARCHIVE_LINE "$0" | tar -xz -C "$INSTALL_DIR"
 
 cd "$INSTALL_DIR/phonespeaker-pc"
-if [ ! -d ".venv-linux" ]; then
-    python3 -m venv .venv-linux
-fi
-./.venv-linux/bin/pip install --upgrade pip -q
-./.venv-linux/bin/pip install numpy psutil Pillow pystray -q
-./.venv-linux/bin/pip install soxr pyaudio -q 2>/dev/null || true
+rm -rf .venv-linux
+python3 -m venv --system-site-packages .venv-linux
+./.venv-linux/bin/pip install --upgrade pip -q 2>/dev/null || true
+./.venv-linux/bin/pip install numpy psutil Pillow -q 2>/dev/null || true
+./.venv-linux/bin/pip install soxr pyaudio pystray -q 2>/dev/null || true
+
+cp -f "$INSTALL_DIR/phonespeaker-pc/vendor/app_icon.png" "$ICON_DIR/phonespeaker.png" 2>/dev/null || true
 
 cat > "$INSTALL_DIR/PhoneSpeaker-v2" <<'EOF'
 #!/usr/bin/env bash
-exec "$HOME/.local/opt/phonespeaker/phonespeaker-pc/.venv-linux/bin/python" "$HOME/.local/opt/phonespeaker/phonespeaker-pc/src/main.py" "$@"
+mkdir -p "$HOME/.config/PhoneSpeaker"
+exec "$HOME/.local/opt/phonespeaker/phonespeaker-pc/.venv-linux/bin/python" "$HOME/.local/opt/phonespeaker/phonespeaker-pc/src/main.py" "$@" >>"$HOME/.config/PhoneSpeaker/startup.log" 2>&1
 EOF
 chmod +x "$INSTALL_DIR/PhoneSpeaker-v2"
 ln -sf "$INSTALL_DIR/PhoneSpeaker-v2" "$BIN_DIR/phonespeaker"
+sudo ln -sf "$INSTALL_DIR/PhoneSpeaker-v2" /usr/local/bin/phonespeaker 2>/dev/null || true
 
 cat > "$APP_DIR/phonespeaker.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=PhoneSpeaker v2.0
+Name=PhoneSpeaker v2.0 Studio
 Comment=Low-latency Wireless PC Speaker & Mic Studio
-Exec="$INSTALL_DIR/PhoneSpeaker-v2"
-Icon="$INSTALL_DIR/phonespeaker-pc/vendor/app_icon.png"
+Exec=$INSTALL_DIR/PhoneSpeaker-v2
+Icon=$ICON_DIR/phonespeaker.png
 Terminal=false
+StartupNotify=true
 Categories=AudioVideo;Audio;Network;
 EOF
 chmod +x "$APP_DIR/phonespeaker.desktop"
@@ -212,6 +217,7 @@ update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
 
 echo "=========================================================="
 echo " SUCCESS! PhoneSpeaker v2.0 Studio installed!"
+echo " Command: phonespeaker"
 echo " Launching PhoneSpeaker v2.0 Studio now..."
 echo "=========================================================="
 nohup "$INSTALL_DIR/PhoneSpeaker-v2" >/dev/null 2>&1 &
