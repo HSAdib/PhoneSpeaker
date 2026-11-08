@@ -93,72 +93,152 @@ For the microphone: tap **Start mic stream to PC (port 5006)** on the phone, or 
 
 ## Install and build
 
-### Android app
+---
 
-Requirements: Android Studio (or the command-line SDK) with SDK Platform 34, NDK and CMake 3.22.1, and JDK 17. The first build needs internet access because CMake fetches **libopus v1.5.2** from GitHub.
+### 1. Android Installation
 
-```powershell
-cd PhoneSpeakerAndroid
-.\gradlew.bat assembleDebug
-```
+**Supported Android Versions:**
+- **Android 8.0 (Oreo, API 26)** through **Android 14 & 15+**.
+- Compatible with all ARM64, ARMv7, x86, and x86_64 phones and tablets.
 
-The APK is written to `PhoneSpeakerAndroid/app/build/outputs/apk/debug/app-debug.apk` and copied to the repository root as `PhoneSpeaker v2.apk`. The app id is `com.hasan.phonespeaker.v2`, so it installs next to the original v1 app instead of replacing it.
+**Download APK:**
+Grab the latest **`PhoneSpeaker v2.apk`** from [Releases](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0).
 
-Requirements on the phone: Android 8.0 (API 26) or newer.
-
-Install the APK:
-
-- **Helper script (Windows):** `.\install_apk.ps1` finds `adb`, checks for a device, installs the APK and launches the app. If no device is connected it prints the wireless-debugging steps.
-- **Wireless debugging:** enable Developer options → Wireless debugging → *Pair device with pairing code*, then:
+**How to Install on Phone:**
+- **Direct File Transfer (Simplest):** Send `PhoneSpeaker v2.apk` to your phone via Google Drive, Quick Share, Telegram, or USB cable. Tap the downloaded file and select *Install* (allow *Install unknown apps* for your browser/file manager if prompted).
+- **Windows Helper Script:** Run the included PowerShell helper:
+  ```powershell
+  .\install_apk.ps1
+  ```
+  *(Automatically detects connected phones over USB or guides you through wireless ADB pairing)*.
+- **Wireless ADB / Command Line:**
   ```powershell
   adb pair <phone_ip>:<pairing_port>
   adb connect <phone_ip>:<connect_port>
   adb install -r "PhoneSpeaker v2.apk"
   ```
-- **File transfer:** send the APK to the phone (Drive, Quick Share, USB) and tap it. Allow *Install unknown apps* when asked.
 
-Permissions the app asks for: network, notifications (Android 13+), microphone (only for the mic server), and a battery-optimization exemption (recommended, so Android doesn't throttle the stream).
+> **Permissions:** PhoneSpeaker requests **Microphone** (only when streaming phone mic to PC), **Notifications** (to keep foreground streaming active), and a **Battery Optimization Exemption** (strongly recommended so Android doesn't throttle audio playback when the screen is locked).
 
-### PC app on Windows
+**Build Android APK from Source:**
+Requires Android Studio / SDK 34, NDK, CMake 3.22.1, and JDK 17 (CMake automatically clones libopus v1.5.2):
+```powershell
+cd PhoneSpeakerAndroid
+.\gradlew.bat assembleDebug
+```
+The APK is generated at `PhoneSpeakerAndroid/app/build/outputs/apk/debug/app-debug.apk` and copied to the root as `PhoneSpeaker v2.apk`.
 
-Run from source:
+---
 
+### 2. Windows Installation
+
+**Supported OS:**
+- **Windows 11** & **Windows 10** (64-bit).
+
+**Download Windows Binary:**
+Download **`PhoneSpeaker v2.exe`** from [Releases](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0).
+
+**How to Run:**
+- **No installation required!** `PhoneSpeaker v2.exe` is a standalone, single-file executable with bundled 64-bit `opus.dll` and zero external dependencies.
+- Simply double-click `PhoneSpeaker v2.exe` to run.
+- **Windows Firewall:** Click **Add Firewall Rules** in the app's *Virtual Device* tab, or run in Administrator PowerShell:
+  ```powershell
+  foreach ($p in 5004,5005,5006) {
+    netsh advfirewall firewall add rule name="PhoneSpeaker UDP $p" protocol=UDP localport=$p dir=in action=allow enable=yes profile=any
+  }
+  ```
+
+**Build Windows EXE from Source:**
 ```powershell
 cd phonespeaker-pc
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python src\main.py
-```
-
-Build a single windowed `.exe` with PyInstaller:
-
-```powershell
 .\.venv\Scripts\python build_exe.py
 ```
+*(Automatically fetches `opus.dll`, builds `PhoneSpeaker v2.exe`, and packages the self-extracting Linux installer)*.
 
-This creates the venv if needed, installs requirements, fetches `opus.dll` through `vendor/get_opus.py`, generates the app icon, builds `dist/PhoneSpeaker v2.exe` and copies it to the repository root. It also packages the Linux installer (see below).
+---
 
-### PC app on Linux
+### 3. Linux Distros Installation
 
-Requirements: Python 3 with Tk, `libopus`, and PipeWire or PulseAudio with the `pactl`, `parec` and `pacat` tools (`pulseaudio-utils`, or `pipewire-pulse` plus the Pulse utilities).
+**Supported Distributions:**
+- **Ubuntu** (20.04, 22.04, 24.04+)
+- **Linux Mint** (20, 21, 22+)
+- **Arch Linux** (including Manjaro, EndeavourOS)
+- **Debian** (11 Bullseye, 12 Bookworm, Sid)
+- **Fedora** (38, 39, 40+)
 
-**One command:** `install_linux.sh` installs system packages (it supports `pacman`, `apt` and `dnf`), builds the app and runs the generated installer.
+Compatible with both **PipeWire** (`pipewire-pulse`) and **PulseAudio**.
+
+#### Method A: One-Line Instant Terminal Install (Easiest)
+
+Open any terminal on your distro and run:
 
 ```bash
-chmod +x install_linux.sh
-./install_linux.sh
+curl -sSL https://raw.githubusercontent.com/HSAdib/PhoneSpeaker/main/install_linux.sh | bash
 ```
 
-The installer (`PhoneSpeaker-v2-Linux-Installer.run`) installs to `~/.local/opt/phonespeaker`, creates a Python venv, adds a `phonespeaker` command in `~/.local/bin` and a desktop launcher, then starts the app.
+> **What this one-liner does automatically:**
+> 1. Detects your package manager (`apt`, `pacman`, or `dnf`) and ensures dependencies (`python3-tk`, `libopus0`, `pulseaudio-utils`, `portaudio`) are present.
+> 2. Downloads the pre-built `PhoneSpeaker v2.0` bundle from GitHub Releases.
+> 3. Installs the application to `~/.local/opt/phonespeaker`.
+> 4. Adds **PhoneSpeaker v2.0 Studio** with icon to your desktop application menu.
+> 5. Adds the `phonespeaker` terminal command and launches the app.
 
-You can also run from source or build manually:
+---
 
+#### Method B: Using the Downloaded `.run` Installer
+
+1. Download **`PhoneSpeaker-v2-Linux-Installer.run`** from [Releases](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0).
+2. Install per your distro:
+
+##### • Ubuntu & Linux Mint:
+```bash
+cd ~/Downloads
+chmod +x PhoneSpeaker-v2-Linux-Installer.run
+./PhoneSpeaker-v2-Linux-Installer.run
+```
+*(Or GUI: Right-click the `.run` file $\rightarrow$ **Properties** $\rightarrow$ **Permissions** $\rightarrow$ Check **"Allow executing file as program"** $\rightarrow$ Double-click to run).*
+
+##### • Arch Linux (Manjaro / EndeavourOS):
+```bash
+cd ~/Downloads
+chmod +x PhoneSpeaker-v2-Linux-Installer.run
+./PhoneSpeaker-v2-Linux-Installer.run
+```
+
+##### • Debian:
+Ensure base audio tools are installed first:
+```bash
+sudo apt update && sudo apt install -y pulseaudio-utils libopus0 python3-tk
+chmod +x PhoneSpeaker-v2-Linux-Installer.run
+./PhoneSpeaker-v2-Linux-Installer.run
+```
+
+---
+
+#### Launching on Linux:
+- **Application Menu:** Open your desktop app launcher and click **PhoneSpeaker v2.0 Studio**.
+- **Terminal:** Type:
+  ```bash
+  phonespeaker
+  ```
+
+#### Linux Firewall (If Streaming is Blocked):
+- **Ubuntu / Mint / Debian (`ufw`):**
+  ```bash
+  sudo ufw allow 5004/udp && sudo ufw allow 5005/udp && sudo ufw allow 5006/udp
+  ```
+- **Arch / Fedora (`firewalld`):**
+  ```bash
+  sudo firewall-cmd --add-port={5004,5005,5006}/udp --permanent && sudo firewall-cmd --reload
+  ```
+
+#### Build Linux App from Source:
 ```bash
 python3 phonespeaker-pc/build_linux.py     # builds dist/PhoneSpeaker-v2 and the .run installer
-python3 phonespeaker-pc/src/main.py        # run directly
+python3 phonespeaker-pc/src/main.py        # run directly from source
 ```
-
-On Linux, audio is captured from the PipeWire/PulseAudio **monitor** of your default output with `parec`, and played back with `pacat` or PyAudio.
 
 ### Tests (PC)
 
