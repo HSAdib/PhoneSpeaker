@@ -72,6 +72,8 @@ class AudioStreamService : Service() {
     private var pausedByFocus = false
     private var savedVolumeGain = 1.0f
     private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
+    private var lastAttachedSessionId = 0
+    private val serviceHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     private fun applyEffectiveMuteAndGain() {
         val effectiveMute = userMuted || (outputTargets == "PC_ONLY") || pausedByHeadset || pausedByFocus
@@ -155,6 +157,11 @@ class AudioStreamService : Service() {
             }
             ACTION_START_MIC -> {
                 val enableFx = intent.getBooleanExtra(EXTRA_MIC_FX, true)
+                if (isMicStreaming) {
+                    micStreamer?.stop()
+                    micStreamer = null
+                    micStreamerInstance = null
+                }
                 startMicServer(targetIp, enableFx)
             }
             ACTION_STOP_MIC -> {
@@ -215,6 +222,7 @@ class AudioStreamService : Service() {
         }
 
         updateAudioEffects()
+        serviceHandler.postDelayed({ updateAudioEffects() }, 280L)
 
         ensureControlChannel()
         notifyStateChanged()
@@ -226,6 +234,7 @@ class AudioStreamService : Service() {
             loudnessEnhancer?.release()
         } catch (_: Exception) {}
         loudnessEnhancer = null
+        lastAttachedSessionId = 0
 
         AudioNative.nativeStop()
         releaseAudioFocus()
@@ -369,6 +378,7 @@ class AudioStreamService : Service() {
             val lowLatency = (audioOutputEngine == "OBOE_LOW_LATENCY" && !enableAudioEffects)
             AudioNative.nativeSetLowLatencyMode(lowLatency)
             updateAudioEffects()
+            serviceHandler.postDelayed({ updateAudioEffects() }, 280L)
         } catch (e: Exception) {
             Log.e(TAG, "Error applying CONFIG_SYNC in service", e)
         }
@@ -377,12 +387,15 @@ class AudioStreamService : Service() {
     private fun updateAudioEffects() {
         if (enableAudioEffects && isStreaming) {
             val sessionId = AudioNative.nativeGetAudioSessionId()
-            if (sessionId > 0 && loudnessEnhancer == null) {
+            if (sessionId > 0 && (loudnessEnhancer == null || sessionId != lastAttachedSessionId)) {
+                try { loudnessEnhancer?.release() } catch (_: Exception) {}
+                loudnessEnhancer = null
                 try {
                     loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
                         setTargetGain(600)
                         enabled = true
                     }
+                    lastAttachedSessionId = sessionId
                     Log.i(TAG, "Attached LoudnessEnhancer to session $sessionId")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to attach LoudnessEnhancer: ${e.message}")
@@ -393,6 +406,7 @@ class AudioStreamService : Service() {
                 loudnessEnhancer?.release()
             } catch (_: Exception) {}
             loudnessEnhancer = null
+            lastAttachedSessionId = 0
         }
     }
 

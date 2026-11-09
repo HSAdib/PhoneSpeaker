@@ -320,6 +320,18 @@ def test_protocol_v2_and_sync() -> None:
         assert "direction" in DEFAULT_CONFIG
         assert "output_targets" in DEFAULT_CONFIG
         assert "pc_sync_delay_ms" in DEFAULT_CONFIG
+        assert DEFAULT_CONFIG["audio_profile"] == "BALANCED", f"Expected BALANCED profile, got {DEFAULT_CONFIG.get('audio_profile')}"
+        assert DEFAULT_CONFIG["opus_bitrate_kbps"] == 192, f"Expected 192 kbps, got {DEFAULT_CONFIG.get('opus_bitrate_kbps')}"
+
+        from opus_codec import OpusEncoder
+        enc = OpusEncoder(bitrate=192000, frame_ms=5)
+        assert enc.available, "OpusEncoder should be available"
+        enc.set_bitrate(256000)
+        enc.set_frame_ms(10)
+        pcm_10ms = b"\x00" * 1920
+        encoded_10ms = enc.encode(pcm_10ms)
+        assert encoded_10ms is not None and len(encoded_10ms) > 0, "OpusEncoder failed to encode 10ms frame"
+        enc.destroy()
 
         from ui import _QueueAdapter
         from network import AudioQueue

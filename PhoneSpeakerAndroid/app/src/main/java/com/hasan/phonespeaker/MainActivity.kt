@@ -37,13 +37,17 @@ class MainActivity : AppCompatActivity() {
     private var localRev = 1
     private var lastSyncId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
     private var suppressSync = false
+    private var currentFrameMs = 5
+    private var currentPcSyncDelayMs = 25
+    private var userEditedPcIp: String? = null
+    private var lastAppliedDiscoveredPcIp: String? = null
 
     private val bitrateValues = listOf("10", "24", "32", "64", "96", "128", "160", "192", "256", "320")
 
     private fun computeExpectedDelayMs(): Pair<Int, String> {
         val isOpus = binding.rbCodecOpus.isChecked || binding.rbPlayerCodecOpus.isChecked
         val bitrate = bitrateValues.getOrElse(binding.spinnerBitrate.selectedItemPosition) { "128" }.toIntOrNull() ?: 128
-        val frameMs = 5
+        val frameMs = if (!isOpus) 5 else currentFrameMs
         val bufMs = quantizeTarget(AudioNative.nativeGetTargetBufferMs()).toInt()
         val captureMs = 10
         val hwMs = 10
@@ -59,6 +63,14 @@ class MainActivity : AppCompatActivity() {
         }
         val totalMs = captureMs + frameMs + codecNetMs + bufMs + hwMs
         return Pair(totalMs, "Expected Delay: ~$totalMs ms ($qualityNote, ${frameMs}ms frame + ${bufMs}ms buf)")
+    }
+
+    private fun updateCodecBitrateUiState(isOpus: Boolean) {
+        binding.spinnerBitrate.isEnabled = isOpus
+        binding.spPlayerBitrate.isEnabled = isOpus
+        binding.spinnerBitrate.alpha = if (isOpus) 1.0f else 0.45f
+        binding.spPlayerBitrate.alpha = if (isOpus) 1.0f else 0.45f
+        if (!isOpus) currentFrameMs = 5
     }
 
     private fun updateExpectedDelayUI() {
@@ -291,6 +303,8 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
 
     private fun setupUI() {
+        suppressSync = true
+
         // Bitrate spinner with custom dark adapter & selection listener
         val bitrateAdapter = object : ArrayAdapter<String>(
             this,
@@ -346,7 +360,16 @@ class MainActivity : AppCompatActivity() {
         binding.spinnerBitrate.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (suppressSync) return
-                binding.rbProfileCustom.isChecked = true
+                val selectedKbps = bitrateValues.getOrElse(position) { "128" }
+                val expectedKbps = when {
+                    binding.rbProfileQuality.isChecked -> "256"
+                    binding.rbProfileGaming.isChecked -> "128"
+                    binding.rbProfileBalanced.isChecked -> "192"
+                    else -> ""
+                }
+                if (expectedKbps.isNotEmpty() && selectedKbps != expectedKbps) {
+                    binding.rbProfileCustom.isChecked = true
+                }
                 if (binding.spPlayerBitrate.selectedItemPosition != position) {
                     suppressSync = true
                     binding.spPlayerBitrate.setSelection(position)
@@ -360,7 +383,16 @@ class MainActivity : AppCompatActivity() {
         binding.spPlayerBitrate.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (suppressSync) return
-                binding.rbProfileCustom.isChecked = true
+                val selectedKbps = bitrateValues.getOrElse(position) { "128" }
+                val expectedKbps = when {
+                    binding.rbProfileQuality.isChecked -> "256"
+                    binding.rbProfileGaming.isChecked -> "128"
+                    binding.rbProfileBalanced.isChecked -> "192"
+                    else -> ""
+                }
+                if (expectedKbps.isNotEmpty() && selectedKbps != expectedKbps) {
+                    binding.rbProfileCustom.isChecked = true
+                }
                 if (binding.spinnerBitrate.selectedItemPosition != position) {
                     suppressSync = true
                     binding.spinnerBitrate.setSelection(position)
@@ -427,6 +459,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.rbProfileQuality -> {
                     suppressSync = true
                     try {
+                        currentFrameMs = 10
                         binding.rbCodecOpus.isChecked = true
                         binding.rbPlayerCodecOpus.isChecked = true
                         val idx = bitrateValues.indexOf("256")
@@ -446,6 +479,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.rbProfileGaming -> {
                     suppressSync = true
                     try {
+                        currentFrameMs = 5
                         binding.rbCodecOpus.isChecked = true
                         binding.rbPlayerCodecOpus.isChecked = true
                         val idx = bitrateValues.indexOf("128")
@@ -465,6 +499,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.rbProfileBalanced -> {
                     suppressSync = true
                     try {
+                        currentFrameMs = 5
                         binding.rbCodecOpus.isChecked = true
                         binding.rbPlayerCodecOpus.isChecked = true
                         val idx = bitrateValues.indexOf("192")
@@ -482,6 +517,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            updateCodecBitrateUiState(binding.rbCodecOpus.isChecked)
             onLocalSettingChanged()
         }
 
@@ -511,11 +547,13 @@ class MainActivity : AppCompatActivity() {
             if (suppressSync) return@setOnCheckedChangeListener
             binding.rbProfileCustom.isChecked = true
             suppressSync = true
-            if (checkedId == R.id.rbPlayerCodecOpus) {
+            val isOpus = (checkedId == R.id.rbPlayerCodecOpus)
+            if (isOpus) {
                 binding.rbCodecOpus.isChecked = true
             } else {
                 binding.rbCodecPcm.isChecked = true
             }
+            updateCodecBitrateUiState(isOpus)
             suppressSync = false
             onLocalSettingChanged()
         }
@@ -524,11 +562,13 @@ class MainActivity : AppCompatActivity() {
             if (suppressSync) return@setOnCheckedChangeListener
             binding.rbProfileCustom.isChecked = true
             suppressSync = true
-            if (checkedId == R.id.rbCodecOpus) {
+            val isOpus = (checkedId == R.id.rbCodecOpus)
+            if (isOpus) {
                 binding.rbPlayerCodecOpus.isChecked = true
             } else {
                 binding.rbPlayerCodecPcm.isChecked = true
             }
+            updateCodecBitrateUiState(isOpus)
             suppressSync = false
             onLocalSettingChanged()
         }
@@ -537,13 +577,23 @@ class MainActivity : AppCompatActivity() {
         binding.rgOutputTargets.setOnCheckedChangeListener { _, checkedId ->
             if (suppressSync) return@setOnCheckedChangeListener
             if (checkedId == R.id.rbTargetBoth) {
-                binding.rbProfileQuality.isChecked = true
                 suppressSync = true
                 try {
+                    currentFrameMs = 10
+                    binding.rbProfileQuality.isChecked = true
+                    binding.rbCodecOpus.isChecked = true
+                    binding.rbPlayerCodecOpus.isChecked = true
+                    val idx = bitrateValues.indexOf("256")
+                    if (idx >= 0) {
+                        binding.spinnerBitrate.setSelection(idx)
+                        binding.spPlayerBitrate.setSelection(idx)
+                    }
+                    binding.rbBufCustom.isChecked = true
                     binding.sliderTargetBuffer.value = quantizeTarget(60f)
                     binding.tvTargetBufferValue.text = "60 ms"
                     AudioNative.nativeSetTargetBufferMs(60f)
                     AudioNative.nativeSetAutoMode(false)
+                    updateCodecBitrateUiState(true)
                 } finally {
                     suppressSync = false
                 }
@@ -555,6 +605,21 @@ class MainActivity : AppCompatActivity() {
         binding.rgServerRole.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
         binding.rgOutputEngine.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
         binding.switchAudioFx.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
+        binding.switchMicFx.setOnCheckedChangeListener { _, isChecked ->
+            if (AudioStreamService.isMicStreaming) {
+                val targetIp = binding.etPcIp.text.toString().trim()
+                val micIntent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_START_MIC
+                    if (targetIp.isNotEmpty()) putExtra(AudioStreamService.EXTRA_TARGET_IP, targetIp)
+                    putExtra(AudioStreamService.EXTRA_MIC_FX, isChecked)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(micIntent)
+                } else {
+                    startService(micIntent)
+                }
+            }
+        }
         binding.rgExclusiveMode.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
         binding.switchHeadsetDisconnect.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
 
@@ -606,8 +671,41 @@ class MainActivity : AppCompatActivity() {
         binding.btnToggleMic.setOnClickListener { toggleMicStreaming() }
         binding.btnToggleMicMain.setOnClickListener { toggleMicStreaming() }
 
+        // Connect manual PC IP
+        val applyManualPcIp = {
+            var manualIp = binding.etPcIp.text.toString().trim()
+            for (prefix in listOf("http://", "https://", "udp://")) {
+                if (manualIp.startsWith(prefix, ignoreCase = true)) {
+                    manualIp = manualIp.substring(prefix.length).trim()
+                }
+            }
+            manualIp = manualIp.substringBefore("/").substringBefore(":").trim()
+            val ch = AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel
+            if (manualIp.isNotEmpty() && ch?.isOwnLocalIp(manualIp) != true) {
+                binding.etPcIp.setText(manualIp)
+                userEditedPcIp = manualIp
+                ch?.setActivePcIp(manualIp)
+                AudioStreamService.micStreamerInstance?.updateTargetIp(manualIp)
+                binding.etPcIp.clearFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                imm?.hideSoftInputFromWindow(binding.etPcIp.windowToken, 0)
+                onLocalSettingChanged()
+            } else {
+                userEditedPcIp = null
+                binding.etPcIp.setText("")
+            }
+        }
+        binding.btnConnectPcIp.setOnClickListener { applyManualPcIp() }
+        binding.etPcIp.setOnEditorActionListener { _, _, _ ->
+            applyManualPcIp()
+            true
+        }
+
         binding.btnBatteryOpt.setOnClickListener { requestBatteryOptimizationExemption() }
         binding.btnRefreshIps.setOnClickListener { refreshLocalIps() }
+
+        updateCodecBitrateUiState(binding.rbCodecOpus.isChecked)
+        binding.root.post { suppressSync = false }
     }
 
     // ------------------------------------------------------------------
@@ -654,6 +752,8 @@ class MainActivity : AppCompatActivity() {
             })
             put("codec", if (binding.rbCodecOpus.isChecked || binding.rbPlayerCodecOpus.isChecked) 1 else 0)
             put("opus_bitrate_kbps", bitrateValues.getOrElse(binding.spinnerBitrate.selectedItemPosition) { "128" }.toInt())
+            put("frame_ms", currentFrameMs)
+            put("pc_sync_delay_ms", currentPcSyncDelayMs)
             put("buffer_mode", when (binding.rgBufferMode.checkedRadioButtonId) {
                 R.id.rbBufLow -> "LOW"
                 R.id.rbBufMed -> "MEDIUM"
@@ -679,8 +779,24 @@ class MainActivity : AppCompatActivity() {
         val lowLatency = binding.rbEngineOboe.isChecked && !binding.switchAudioFx.isChecked
         AudioNative.nativeSetLowLatencyMode(lowLatency)
 
-        val destIp = binding.etPcIp.text.toString().trim().ifEmpty { null }
-        (AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel)?.sendConfigSync(json, destIp)
+        val destIp = userEditedPcIp ?: binding.etPcIp.text.toString().trim().ifEmpty { null }
+        val ch = AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel
+        if (ch != null) {
+            ch.sendConfigSync(json, destIp)
+        } else if (destIp != null) {
+            // Fallback: send CONFIG_SYNC directly via background thread so setting change is never dropped
+            val payload = json.toString().toByteArray(Charsets.UTF_8)
+            Thread({
+                try {
+                    java.net.DatagramSocket().use { sock ->
+                        val pkt = java.net.DatagramPacket(payload, payload.size, java.net.InetAddress.getByName(destIp), 5005)
+                        sock.send(pkt)
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "Fallback sendConfigSync error: ${e.message}")
+                }
+            }, "FallbackConfigSyncSender").start()
+        }
     }
 
     private fun applyIncomingConfigSync(json: JSONObject) {
@@ -769,6 +885,13 @@ class MainActivity : AppCompatActivity() {
                     binding.spPlayerBitrate.setSelection(idx)
                 }
             }
+            if (json.has("frame_ms")) {
+                currentFrameMs = json.getInt("frame_ms")
+            }
+            if (json.has("pc_sync_delay_ms")) {
+                currentPcSyncDelayMs = json.getInt("pc_sync_delay_ms")
+            }
+            updateCodecBitrateUiState(binding.rbCodecOpus.isChecked)
             updateExpectedDelayUI()
 
             if (json.has("direction")) {
@@ -901,20 +1024,35 @@ class MainActivity : AppCompatActivity() {
             binding.tvLatePackets.text = "${stats.latePackets}"
             binding.tvCodec.text = if (stats.codec == 1) "Opus" else "PCM16"
 
-            // Auto-update connected PC IP if empty
+            // Auto-update connected PC IP if empty / network changed
             val rawPcIp = AudioStreamService.activeControlChannel?.getActivePcIp()
                 ?: preStreamDiscoveryChannel?.getActivePcIp()
                 ?: AudioNative.nativeGetSenderIp()
             val isOwn = (AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel)?.isOwnLocalIp(rawPcIp) == true
-            val pcIp = if (!isOwn) rawPcIp else null
-            if (!pcIp.isNullOrBlank() && (binding.etPcIp.text.isNullOrBlank() || (AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel)?.isOwnLocalIp(binding.etPcIp.text.toString()) == true)) {
-                binding.etPcIp.setText(pcIp)
+            val discoveredPcIp = if (!isOwn && !rawPcIp.isNullOrBlank()) rawPcIp else null
+
+            if (!binding.etPcIp.hasFocus()) {
+                val currentText = binding.etPcIp.text?.toString()?.trim().orEmpty()
+                val currentIsOwn = (AudioStreamService.activeControlChannel ?: preStreamDiscoveryChannel)?.isOwnLocalIp(currentText) == true
+                if (discoveredPcIp != null && (currentText.isEmpty() || currentIsOwn || (userEditedPcIp == null && discoveredPcIp != lastAppliedDiscoveredPcIp))) {
+                    lastAppliedDiscoveredPcIp = discoveredPcIp
+                    binding.etPcIp.setText(discoveredPcIp)
+                }
             }
+            val displayIp = discoveredPcIp ?: userEditedPcIp
             val pcName = AudioStreamService.activeControlChannel?.getActivePcName()
                 ?: preStreamDiscoveryChannel?.getActivePcName()
                 ?: "PC"
 
-            binding.tvConnectedDeviceTitle.text = if (!pcIp.isNullOrBlank()) "💻 Connected to: $pcName ($pcIp)" else "💻 Waiting for PC connection..."
+            val lastPcSeen = AudioStreamService.activeControlChannel?.lastPcSeenElapsedMs
+                ?: preStreamDiscoveryChannel?.lastPcSeenElapsedMs
+                ?: 0L
+            val isConnected = stats.rxPps > 0 || (lastPcSeen > 0 && (SystemClock.elapsedRealtime() - lastPcSeen) < 6000L)
+
+            binding.tvConnectedDeviceTitle.text = if (!displayIp.isNullOrBlank()) {
+                if (isConnected) "💻 Connected to: $pcName ($displayIp)"
+                else "💻 PC ($displayIp) — Idle / Waiting..."
+            } else "💻 Waiting for PC connection..."
             binding.tvConnectedDeviceSub.text = "📱 This Phone: ${ControlChannel.getPhoneModelName()}"
 
             // Mic TX PPS

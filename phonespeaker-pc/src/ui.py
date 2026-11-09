@@ -162,7 +162,7 @@ class PhoneSpeakerApp:
 
         # Core StringVars & IntVars initialized early so all tabs can share them
         self.codec_var = tk.IntVar(value=int(self.cfg.get("codec", CODEC_OPUS)))
-        self.bitrate_var = tk.StringVar(value=str(self.cfg.get("opus_bitrate_kbps", 128)))
+        self.bitrate_var = tk.StringVar(value=str(self.cfg.get("opus_bitrate_kbps", 192)))
         self.frame_ms_var = tk.StringVar(value=str(self.cfg.get("frame_ms", 5)))
         self.buffer_mode_var = tk.StringVar(value=self.cfg.get("buffer_mode", "AUTO"))
         self.custom_buffer_var = tk.DoubleVar(value=float(self.cfg.get("custom_buffer_ms", 30.0)))
@@ -174,6 +174,8 @@ class PhoneSpeakerApp:
         self.audio_profile_var = tk.StringVar(value=self.cfg.get("audio_profile", "BALANCED"))
         self.expected_delay_var = tk.StringVar(value="")
         self.delay_header_var = tk.StringVar(value="Delay: -- ms (Est. Total: -- ms) | Target: 30.0 ms | Loss: 0")
+        self._manual_ip_override: Optional[str] = None
+        self._last_phone_seen_time: float = 0.0
 
         # Audio threads & engines
         self._audio_capture: Optional[AudioCapture] = None
@@ -386,16 +388,21 @@ class PhoneSpeakerApp:
         self.adapter_combo = ttk.Combobox(nf, state="readonly", font=FONT_MONO_SM)
         self.adapter_combo.grid(row=0, column=1, sticky="ew", padx=4, pady=2)
         self.adapter_combo.bind("<<ComboboxSelected>>", self._on_adapter_selected)
+        ttk.Button(nf, text="↻", width=3, command=self._refresh_all_devices).grid(row=0, column=2, padx=(2, 4), pady=2)
 
         tk.Label(nf, text="Phone IP / Port:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM, width=15, anchor="e").grid(row=1, column=0, sticky="e", padx=4, pady=2)
         ip_row = tk.Frame(nf, bg=BG)
         ip_row.grid(row=1, column=1, sticky="ew", padx=4, pady=2)
         self.ip_var = tk.StringVar(value=self.cfg.get("phone_ip", ""))
-        self.ip_entry = tk.Entry(ip_row, textvariable=self.ip_var, width=18, bg="#141414", fg=FG, insertbackground=FG, relief="solid", bd=1, font=FONT_MONO_SM)
+        self.ip_entry = tk.Entry(ip_row, textvariable=self.ip_var, width=16, bg="#141414", fg=FG, insertbackground=FG, relief="solid", bd=1, font=FONT_MONO_SM)
         self.ip_entry.pack(side="left")
+        self.ip_entry.bind("<Return>", self._on_manual_ip_applied)
         tk.Label(ip_row, text=" : ", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).pack(side="left")
         self.ip_port_var = tk.StringVar(value=str(self.cfg.get("phone_port", AUDIO_PORT)))
-        tk.Entry(ip_row, textvariable=self.ip_port_var, width=6, bg="#141414", fg=FG, insertbackground=FG, relief="solid", bd=1, font=FONT_MONO_SM).pack(side="left")
+        self.port_entry = tk.Entry(ip_row, textvariable=self.ip_port_var, width=6, bg="#141414", fg=FG, insertbackground=FG, relief="solid", bd=1, font=FONT_MONO_SM)
+        self.port_entry.pack(side="left")
+        self.port_entry.bind("<Return>", self._on_manual_ip_applied)
+        ttk.Button(ip_row, text="Apply IP", command=self._on_manual_ip_applied).pack(side="left", padx=(6, 0))
 
         tk.Label(nf, text="Stream Mode:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM, width=15, anchor="e").grid(row=2, column=0, sticky="e", padx=4, pady=2)
         role_row = tk.Frame(nf, bg=BG)
@@ -573,14 +580,14 @@ class PhoneSpeakerApp:
                        bg=BG, fg=FG, selectcolor="#333333", font=FONT_MONO, command=self._on_codec_changed).pack(side="left", padx=8)
 
         tk.Label(qf, text="Opus Bitrate:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).grid(row=1, column=0, sticky="e", padx=4, pady=3)
-        bitrate_combo = ttk.Combobox(qf, textvariable=self.bitrate_var, values=OPUS_BITRATES, width=8, state="readonly", font=FONT_MONO)
-        bitrate_combo.grid(row=1, column=1, sticky="w", padx=4, pady=3)
-        bitrate_combo.bind("<<ComboboxSelected>>", lambda e: self._on_bitrate_changed())
+        self.bitrate_combo_tab2 = ttk.Combobox(qf, textvariable=self.bitrate_var, values=OPUS_BITRATES, width=8, state="readonly", font=FONT_MONO)
+        self.bitrate_combo_tab2.grid(row=1, column=1, sticky="w", padx=4, pady=3)
+        self.bitrate_combo_tab2.bind("<<ComboboxSelected>>", lambda e: self._on_bitrate_changed())
 
         tk.Label(qf, text="Frame Size:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).grid(row=2, column=0, sticky="e", padx=4, pady=3)
-        frame_combo = ttk.Combobox(qf, textvariable=self.frame_ms_var, values=FRAME_SIZES_MS, width=8, state="readonly", font=FONT_MONO)
-        frame_combo.grid(row=2, column=1, sticky="w", padx=4, pady=3)
-        frame_combo.bind("<<ComboboxSelected>>", lambda e: self._on_frame_ms_changed())
+        self.frame_combo_tab2 = ttk.Combobox(qf, textvariable=self.frame_ms_var, values=FRAME_SIZES_MS, width=8, state="readonly", font=FONT_MONO)
+        self.frame_combo_tab2.grid(row=2, column=1, sticky="w", padx=4, pady=3)
+        self.frame_combo_tab2.bind("<<ComboboxSelected>>", lambda e: self._on_frame_ms_changed())
 
         # Expected delay label
         tk.Label(qf, textvariable=self.expected_delay_var, bg=BG, fg="#00EEEE", font=FONT_MONO_SM, anchor="w").grid(row=3, column=0, columnspan=2, sticky="w", padx=4, pady=2)
@@ -673,8 +680,11 @@ class PhoneSpeakerApp:
         cf.pack(fill="x", **pad)
 
         tk.Label(cf, text="Source Device:", bg=BG, fg=FG_MUTED, font=FONT_MONO_SM).grid(row=0, column=0, sticky="e", padx=4, pady=4)
-        self.audio_dev_combo = ttk.Combobox(cf, width=32, state="readonly", font=FONT_MONO_SM)
-        self.audio_dev_combo.grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        self.audio_dev_combo = ttk.Combobox(cf, width=30, state="readonly", font=FONT_MONO_SM)
+        self.audio_dev_combo.grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+        self.audio_dev_combo.bind("<<ComboboxSelected>>", self._on_capture_source_selected)
+        ttk.Button(cf, text="↻ Refresh", command=self._refresh_all_devices).grid(row=0, column=2, padx=4, pady=4)
+        cf.columnconfigure(1, weight=1)
 
         # Firewall & System Options
         sf = tk.LabelFrame(f, text=" System & Firewall ", bg=BG, fg=FG, font=FONT_MONO, bd=1, relief="solid")
@@ -700,6 +710,32 @@ class PhoneSpeakerApp:
             self.virt_status_label.config(text=f"DETECTED: {virt[0]['name']}", fg=ACCENT)
         else:
             self.virt_status_label.config(text="No virtual speaker detected. Click [ Install Driver ] below.", fg=WARN)
+
+    def _refresh_all_devices(self) -> None:
+        self._refresh_adapters()
+        self._refresh_audio_devices()
+        self._refresh_pc_outputs()
+
+    def _on_capture_source_selected(self, event=None) -> None:
+        if not self._streaming:
+            return
+        dev_idx = None
+        sel = self.audio_dev_combo.current()
+        if sel >= 1 and (sel - 1) < len(self._audio_devices):
+            dev_idx = self._audio_devices[sel - 1]["index"]
+        f_ms = 5 if self.codec_var.get() == CODEC_PCM16 else int(self.frame_ms_var.get())
+        if self._audio_capture:
+            self._audio_capture.stop()
+            self._audio_capture = None
+        if self._queue_adapter is not None:
+            self._audio_capture = AudioCapture(
+                device_index=dev_idx,
+                output_queue=self._queue_adapter,
+                on_error=self._on_audio_error,
+                frame_ms=f_ms,
+            )
+            self._audio_capture.start()
+            self._sync_live_pc_player()
 
     def _refresh_adapters(self) -> None:
         adapters = list_real_adapters()
@@ -751,6 +787,47 @@ class PhoneSpeakerApp:
             self._phone_receiver.set_output_device(pc_out_idx)
         if self._pc_player:
             self._pc_player.set_output_device(pc_out_idx)
+
+    def _sanitize_ip_and_port(self) -> Tuple[str, int]:
+        raw_ip = self.ip_var.get().strip()
+        for prefix in ("http://", "https://", "udp://"):
+            if raw_ip.lower().startswith(prefix):
+                raw_ip = raw_ip[len(prefix):].strip()
+        raw_ip = raw_ip.split("/")[0].strip()
+
+        port_str = self.ip_port_var.get().strip()
+        if ":" in raw_ip:
+            parts = raw_ip.rsplit(":", 1)
+            raw_ip = parts[0].strip()
+            if parts[1].strip().isdigit():
+                port_str = parts[1].strip()
+                self.ip_port_var.set(port_str)
+
+        if raw_ip != self.ip_var.get():
+            self.ip_var.set(raw_ip)
+
+        try:
+            port = int(port_str)
+            if not (1 <= port <= 65535):
+                raise ValueError()
+        except ValueError:
+            port = AUDIO_PORT
+            self.ip_port_var.set(str(AUDIO_PORT))
+
+        return raw_ip, port
+
+    def _on_manual_ip_applied(self, event=None) -> None:
+        new_ip, new_port = self._sanitize_ip_and_port()
+        if not new_ip:
+            return
+        self._manual_ip_override = new_ip
+        self.phone_ip_var.set(f"Phone: {new_ip}")
+        self.conn_device_ip_var.set(f"{new_ip}  •  TARGET SET")
+        if self._streaming and self._udp_sender:
+            self._udp_sender.update_target(new_ip, new_port)
+            self._update_combined_status()
+        self._save_config()
+        send_control_message(new_ip, self._get_current_config(), CONTROL_PORT)
 
     # ------------------------------------------------------------------
     # Settings & 2-Way Sync Engine
@@ -978,12 +1055,26 @@ class PhoneSpeakerApp:
                 self.custom_buffer_var.set(30.0)
             if hasattr(self, "buffer_val_label"):
                 self.buffer_val_label.config(text=f"{self.custom_buffer_var.get():.1f} ms")
+            self._update_codec_ui_state()
         finally:
             self._suppress_sync = False
+
+    def _update_codec_ui_state(self) -> None:
+        is_opus = (self.codec_var.get() == CODEC_OPUS)
+        state = "readonly" if is_opus else "disabled"
+        if hasattr(self, "bitrate_combo_tab1"):
+            self.bitrate_combo_tab1.config(state=state)
+        if hasattr(self, "bitrate_combo_tab2"):
+            self.bitrate_combo_tab2.config(state=state)
+        if hasattr(self, "frame_combo_tab2"):
+            self.frame_combo_tab2.config(state=state)
+        if not is_opus and self.frame_ms_var.get() != "5":
+            self.frame_ms_var.set("5")
 
     def _on_codec_changed(self) -> None:
         if not self._suppress_sync:
             self.audio_profile_var.set("CUSTOM")
+        self._update_codec_ui_state()
         self._on_local_setting_changed()
 
     def _on_bitrate_changed(self) -> None:
@@ -1017,6 +1108,32 @@ class PhoneSpeakerApp:
         self._on_local_setting_changed()
 
     def _on_role_change(self) -> None:
+        direction = self.direction_var.get()
+        phone_ip = self.ip_var.get().strip()
+
+        if direction == "PHONE_TO_PC":
+            if self._streaming:
+                self._stop_streaming()
+            if self._phone_receiver:
+                self._phone_receiver.set_muted(False, manual=False)
+            self.mic_state_var.set("Phone Mic: LISTENING (:5006)")
+            self.mic_btn.config(
+                text="■  STOP MIC RECEIVER (PHONE → PC :5006 ACTIVE)",
+                bg="#003344", fg="#00FF00"
+            )
+            if phone_ip:
+                send_control_message(phone_ip, {"type": "MIC_CONTROL", "active": True}, CONTROL_PORT)
+        elif direction == "FULL_DUPLEX":
+            if self._phone_receiver:
+                self._phone_receiver.set_muted(False, manual=False)
+            self.mic_state_var.set("Phone Mic: LISTENING (:5006)")
+            self.mic_btn.config(
+                text="■  STOP MIC RECEIVER (PHONE → PC :5006 ACTIVE)",
+                bg="#003344", fg="#00FF00"
+            )
+            if phone_ip:
+                send_control_message(phone_ip, {"type": "MIC_CONTROL", "active": True}, CONTROL_PORT)
+
         self._on_local_setting_changed()
 
     def _on_pc_delay_changed(self, val) -> None:
@@ -1129,12 +1246,23 @@ class PhoneSpeakerApp:
                 self.codec_var.set(int(msg["codec"]))
             if "opus_bitrate_kbps" in msg:
                 self.bitrate_var.set(str(msg["opus_bitrate_kbps"]))
+            if "audio_profile" in msg:
+                prof = msg["audio_profile"]
+                self.audio_profile_var.set(prof)
+                if "frame_ms" not in msg:
+                    if prof == "QUALITY":
+                        self.frame_ms_var.set("10")
+                    elif prof in ("GAMING", "BALANCED"):
+                        self.frame_ms_var.set("5")
             if "frame_ms" in msg:
                 self.frame_ms_var.set(str(msg["frame_ms"]))
-            if "audio_profile" in msg:
-                self.audio_profile_var.set(msg["audio_profile"])
             if "output_targets" in msg:
-                self.output_targets_var.set(msg["output_targets"])
+                tgt = msg["output_targets"]
+                self.output_targets_var.set(tgt)
+                if tgt == "BOTH_SYNCED":
+                    self.auto_pc_sync_var.set(True)
+                    if hasattr(self, "sync_delay_scale"):
+                        self.sync_delay_scale.config(state="disabled")
             if "pc_sync_delay_ms" in msg:
                 d = int(msg["pc_sync_delay_ms"])
                 self.pc_sync_delay_var.set(d)
@@ -1170,6 +1298,7 @@ class PhoneSpeakerApp:
             if "stop_on_headset_disconnect" in msg:
                 self._phone_headset_disc = bool(msg["stop_on_headset_disconnect"])
 
+            self._update_codec_ui_state()
             self._update_expected_delay_label()
 
             if self._streaming:
@@ -1213,15 +1342,10 @@ class PhoneSpeakerApp:
         self._refresh_pc_outputs()
 
         direction = self.direction_var.get()
-        target_ip = self.ip_var.get().strip()
+        target_ip, target_port = self._sanitize_ip_and_port()
         if direction in ("PC_TO_PHONE", "FULL_DUPLEX") and not target_ip:
             messagebox.showwarning("PhoneSpeaker", "Please enter the phone's IP address.")
             return
-
-        try:
-            target_port = int(self.ip_port_var.get().strip())
-        except ValueError:
-            target_port = AUDIO_PORT
 
         codec = self.codec_var.get()
         bitrate = int(self.bitrate_var.get()) * 1000
@@ -1521,6 +1645,11 @@ class PhoneSpeakerApp:
                             self._suppress_sync = False
                         self._on_local_setting_changed()
 
+        # Check phone connection timeout (heartbeat > 5.0s)
+        if hasattr(self, "_last_phone_seen_time") and self._last_phone_seen_time > 0:
+            if (now - self._last_phone_seen_time) > 5.0:
+                self.conn_device_ip_var.set(f"{self.ip_var.get().strip() or 'Phone'}  •  WAITING / OFFLINE")
+
         self.root.after(50, self._schedule_ui_update)
 
     def _process_ui_queue(self) -> None:
@@ -1528,6 +1657,9 @@ class PhoneSpeakerApp:
             while True:
                 item = self._ui_queue.get_nowait()
                 kind, data = item[0], item[1]
+
+                if kind in ("beacon", "stats", "config_sync"):
+                    self._last_phone_seen_time = time.monotonic()
 
                 if kind == "pps":
                     self.pps_var.set(f"Speaker Packets: {data}/s")
@@ -1612,28 +1744,35 @@ class PhoneSpeakerApp:
 
                     self.phone_ip_var.set(f"Phone: {best_ip}")
 
-                    current_ip = self.ip_var.get().strip()
-                    should_update_ip = (not current_ip) or (current_ip not in candidates)
-                    if not should_update_ip and active_adapter_ip:
-                        act_prefix = ".".join(active_adapter_ip.split(".")[:3]) + "."
-                        if not current_ip.startswith(act_prefix) and best_ip.startswith(act_prefix):
-                            should_update_ip = True
+                    is_ip_focused = False
+                    try:
+                        is_ip_focused = (self.root.focus_get() == self.ip_entry)
+                    except Exception:
+                        pass
 
-                    if should_update_ip:
-                        old_ip = current_ip
-                        self.ip_var.set(best_ip)
-                        if self._streaming and self._udp_sender and best_ip != current_ip:
-                            try:
-                                target_port = int(self.ip_port_var.get().strip())
-                            except ValueError:
-                                target_port = AUDIO_PORT
-                            self._udp_sender.update_target(best_ip, target_port)
-                            self._update_combined_status()
-                        if old_ip != best_ip or not old_ip:
-                            try:
-                                send_control_message(best_ip, self._get_current_config(), CONTROL_PORT)
-                            except Exception:
-                                pass
+                    if not is_ip_focused:
+                        current_ip = self.ip_var.get().strip()
+                        should_update_ip = (not current_ip) or (current_ip not in candidates)
+                        if not should_update_ip and active_adapter_ip:
+                            act_prefix = ".".join(active_adapter_ip.split(".")[:3]) + "."
+                            if not current_ip.startswith(act_prefix) and best_ip.startswith(act_prefix):
+                                should_update_ip = True
+
+                        if should_update_ip:
+                            old_ip = current_ip
+                            self.ip_var.set(best_ip)
+                            if self._streaming and self._udp_sender and best_ip != current_ip:
+                                try:
+                                    target_port = int(self.ip_port_var.get().strip())
+                                except ValueError:
+                                    target_port = AUDIO_PORT
+                                self._udp_sender.update_target(best_ip, target_port)
+                                self._update_combined_status()
+                            if old_ip != best_ip or not old_ip:
+                                try:
+                                    send_control_message(best_ip, self._get_current_config(), CONTROL_PORT)
+                                except Exception:
+                                    pass
 
                 elif kind == "stats":
                     s = data
@@ -1759,7 +1898,7 @@ class PhoneSpeakerApp:
             self.ip_var.set(phone_ip)
         self.ip_port_var.set(str(self.cfg.get("phone_port", self.cfg.get("target_port", AUDIO_PORT))))
         self.codec_var.set(int(self.cfg.get("codec", CODEC_OPUS)))
-        self.bitrate_var.set(str(self.cfg.get("opus_bitrate_kbps", 128)))
+        self.bitrate_var.set(str(self.cfg.get("opus_bitrate_kbps", 192)))
         self.frame_ms_var.set(str(self.cfg.get("frame_ms", 5)))
         self.buffer_mode_var.set(self.cfg.get("buffer_mode", "AUTO"))
         self.custom_buffer_var.set(float(self.cfg.get("custom_buffer_ms", 30.0)))
@@ -1780,6 +1919,7 @@ class PhoneSpeakerApp:
         self.pc_sync_delay_var.set(d)
         self.sync_delay_val_label.config(text=f"{d} ms")
         self.tray_var.set(bool(self.cfg.get("minimize_to_tray", True)))
+        self._update_codec_ui_state()
         self._update_expected_delay_label()
 
     def _save_config(self) -> None:
@@ -1790,6 +1930,7 @@ class PhoneSpeakerApp:
             pass
         self.cfg["codec"] = self.codec_var.get()
         self.cfg["opus_bitrate_kbps"] = int(self.bitrate_var.get())
+        self.cfg["bitrate"] = int(self.bitrate_var.get()) * 1000
         self.cfg["frame_ms"] = int(self.frame_ms_var.get())
         self.cfg["buffer_mode"] = self.buffer_mode_var.get()
         self.cfg["custom_buffer_ms"] = self.custom_buffer_var.get()

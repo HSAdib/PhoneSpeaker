@@ -4,10 +4,12 @@ PhoneSpeaker turns an Android phone into a wireless speaker for a Windows or Lin
 
 ## What it does
 
-- Streams PC audio to an Android phone, phone microphone audio to a PC, or both at once.
-- Plays audio on the phone and a PC output device together, with an adjustable sync delay.
-- Supports lossless PCM16 and Opus, with configurable bitrate, frame size, and phone-side jitter buffering.
-- Synchronizes settings between the PC and phone and displays live audio and network telemetry.
+- Streams PC audio to an Android phone, phone microphone audio to a PC, or both at once (Full-Duplex).
+- **4 Sound Modes:** Best Quality (Opus 256 kbps, 10 ms, 80/60 ms buffer), Gaming Low-Delay (Opus 128 kbps, 5 ms, 20 ms buffer), Balanced Auto (Opus 192 kbps, 5 ms, Auto buffer), and Custom (Opus 10–320 kbps or Lossless PCM16 1536 kbps, 5–20 ms frame, 10–200 ms buffer).
+- Plays audio on the phone and a PC output device together with 100% automatic dual-speaker sync (`Both Phone + PC Together (Auto-Synced)`), plus manual fine-tuning (0 to 150 ms) to eliminate echo.
+- Relative volume scaling (0% to 200% with soft-knee limiting, where phone hardware volume = 100% baseline).
+- Supports lossless PCM16 (1536 kbps, 48 kHz stereo) and Opus up to 320 kbps (10, 24, 32, 64, 96, 128, 160, 192, 256, 320 kbps) with Studio Complexity 10 & Constrained VBR, configurable frame size (5, 10, 20 ms), and phone-side jitter buffering.
+- Two-way settings synchronization between PC and phone, and live telemetry on both sides.
 - Provides a virtual microphone route for chat, meeting, and recording apps.
 
 ## Downloads and installation

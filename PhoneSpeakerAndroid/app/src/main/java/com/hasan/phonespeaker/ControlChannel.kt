@@ -39,6 +39,8 @@ class ControlChannel(
     private var lastPingPcTs: Long = 0L
     @Volatile
     private var lastPingRxElapsedMs: Long = 0L
+    @Volatile
+    var lastPcSeenElapsedMs: Long = 0L
 
     fun getActivePcIp(): String? = activePcIp
     fun getActivePcName(): String = activePcName
@@ -208,6 +210,8 @@ class ControlChannel(
                             continue
                         }
 
+                        lastPcSeenElapsedMs = android.os.SystemClock.elapsedRealtime()
+
                         if (msgType == "PING") {
                             val pcTs = json.optLong("pc_ts", 0L)
                             if (pcTs > 0) {
@@ -224,20 +228,16 @@ class ControlChannel(
                             if (pcName.isNotBlank()) activePcName = pcName
                             Log.i(TAG, "Discovered active PC IP via PC_ANNOUNCE: $senderIp ($activePcName)")
                         } else if (msgType == "CONFIG_SYNC") {
-                            if (activePcIp == null || senderIp == activePcIp || json.has("pc_name")) {
-                                activePcIp = senderIp
-                                AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
-                                val pcName = json.optString("pc_name", "")
-                                if (pcName.isNotBlank()) activePcName = pcName
-                                onConfigSyncReceived?.invoke(json)
-                            }
+                            activePcIp = senderIp
+                            AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
+                            val pcName = json.optString("pc_name", "")
+                            if (pcName.isNotBlank()) activePcName = pcName
+                            onConfigSyncReceived?.invoke(json)
                         } else if (msgType == "MIC_CONTROL") {
-                            if (activePcIp == null || senderIp == activePcIp || json.optString("app") == "PhoneSpeakerPC") {
-                                activePcIp = senderIp
-                                AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
-                                val wantActive = json.optBoolean("active", false)
-                                onMicControlReceived?.invoke(wantActive)
-                            }
+                            activePcIp = senderIp
+                            AudioStreamService.micStreamerInstance?.updateTargetIp(senderIp)
+                            val wantActive = json.optBoolean("active", false)
+                            onMicControlReceived?.invoke(wantActive)
                         }
                     } catch (_: Exception) {}
                 }

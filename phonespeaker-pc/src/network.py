@@ -157,6 +157,13 @@ class AudioQueue:
     def qsize(self) -> int:
         return self._q.qsize()
 
+    def clear(self) -> None:
+        while True:
+            try:
+                self._q.get_nowait()
+            except queue.Empty:
+                break
+
 
 # ---------------------------------------------------------------------------
 # UDP sender with pacing
@@ -252,30 +259,31 @@ class UDPSender:
             self._target_ip = target_ip
             self._target_port = target_port
             bind_ip = self._bind_ip
-
-        target_octets = target_ip.split(".") if target_ip else []
-        bind_octets = bind_ip.split(".") if bind_ip else []
-        if len(target_octets) == 4 and len(bind_octets) == 4 and target_octets[:3] != bind_octets[:3]:
-            try:
-                if self._sock:
-                    try:
-                        self._sock.close()
-                    except Exception:
-                        pass
-                self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
-                logger.info("UDPSender recreated unbound socket for subnet switch to %s", target_ip)
-            except Exception as exc:
-                logger.warning("Error recreating socket in update_target: %s", exc)
-
+            target_octets = target_ip.split(".") if target_ip else []
+            bind_octets = bind_ip.split(".") if bind_ip else []
+            if len(target_octets) == 4 and len(bind_octets) == 4 and target_octets[:3] != bind_octets[:3]:
+                try:
+                    if self._sock:
+                        try:
+                            self._sock.close()
+                        except Exception:
+                            pass
+                    self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+                    logger.info("UDPSender recreated unbound socket for subnet switch to %s", target_ip)
+                except Exception as exc:
+                    logger.warning("Error recreating socket in update_target: %s", exc)
         logger.info("UDPSender target updated to %s:%d (was %s)", target_ip, target_port, old_ip)
 
     def set_codec_and_bitrate(self, codec: int, bitrate_bps: int, frame_ms: int) -> None:
         with self._lock:
+            frame_changed = (self._frame_ms != frame_ms)
             self._codec = codec
             self._frame_ms = frame_ms
+            if frame_changed:
+                self._audio_queue.clear()
             if codec == CODEC_OPUS:
-                if self._opus_encoder:
+                if self._opus_encoder and self._opus_encoder.available:
                     try:
                         self._opus_encoder.set_bitrate(bitrate_bps)
                         self._opus_encoder.set_frame_ms(frame_ms)
@@ -306,8 +314,18 @@ class UDPSender:
             self._thread.join(timeout=2.0)
             self._thread = None
         if self._sock:
-            self._sock.close()
+            try:
+                self._sock.close()
+            except Exception:
+                pass
             self._sock = None
+        with self._lock:
+            if self._opus_encoder is not None:
+                try:
+                    self._opus_encoder.destroy()
+                except Exception:
+                    pass
+                self._opus_encoder = None
         logger.info("UDPSender stopped")
 
     def _next_seq(self) -> int:
@@ -321,6 +339,14 @@ class UDPSender:
             codec = self._codec
             muted = self._muted
             gain = self._volume_gain
+            frame_ms = self._frame_ms
+
+        expected_pcm_len = ((48000 * frame_ms) // 1000) * 4
+        if len(pcm_frame) != expected_pcm_len:
+            if len(pcm_frame) > expected_pcm_len:
+                pcm_frame = pcm_frame[:expected_pcm_len]
+            else:
+                pcm_frame = pcm_frame + b'\x00' * (expected_pcm_len - len(pcm_frame))
 
         if muted or gain <= 0.001:
             pcm_frame = b'\x00' * len(pcm_frame)
@@ -372,6 +398,7 @@ class UDPSender:
                 target_ip = self._target_ip
                 target_port = self._target_port
                 send_enabled = self._send_enabled
+                sock = self._sock
                 if self._frame_ms != frame_ms:
                     frame_ms = self._frame_ms
                     interval = frame_ms / 1000.0
@@ -381,7 +408,7 @@ class UDPSender:
                         else (SILENCE_PCM_10MS if frame_ms == 10 else SILENCE_PCM_5MS)
                     )
 
-            if target_ip:
+            if target_ip and sock is not None:
                 frame = self._audio_queue.get_nowait()
 
                 if frame is not None:
@@ -397,19 +424,21 @@ class UDPSender:
 
                 if packet is not None and send_enabled:
                     try:
-                        self._sock.sendto(packet, (target_ip, target_port))
+                        sock.sendto(packet, (target_ip, target_port))
                         pps_count += 1
                     except OSError as exc:
                         logger.warning("Send error on bound socket (%s), falling back to unbound socket", exc)
                         try:
-                            if self._sock:
-                                try:
-                                    self._sock.close()
-                                except Exception:
-                                    pass
-                            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
-                            self._sock.sendto(packet, (target_ip, target_port))
+                            with self._lock:
+                                if self._sock:
+                                    try:
+                                        self._sock.close()
+                                    except Exception:
+                                        pass
+                                self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                                self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+                                sock = self._sock
+                            sock.sendto(packet, (target_ip, target_port))
                             pps_count += 1
                         except Exception as retry_exc:
                             logger.error("Retry send error on unbound socket: %s", retry_exc)
@@ -538,8 +567,12 @@ class ControlListener:
                     logger.error("ControlListener error: %s", exc)
 
 
+_ctrl_sock_lock = threading.Lock()
+_ctrl_sock: Optional[socket.socket] = None
+
 def send_control_message(target_ip: str, msg: dict, port: int = CONTROL_PORT) -> bool:
-    """Send a JSON control message over UDP to target_ip:port."""
+    """Send a JSON control message over UDP to target_ip:port using a persistent socket."""
+    global _ctrl_sock
     if not target_ip:
         return False
     try:
@@ -547,10 +580,20 @@ def send_control_message(target_ip: str, msg: dict, port: int = CONTROL_PORT) ->
         payload.setdefault("app", "PhoneSpeakerPC")
         payload.setdefault("pc_name", socket.gethostname())
         data = json.dumps(payload).encode("utf-8")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.sendto(data, (target_ip, port))
-        sock.close()
+        with _ctrl_sock_lock:
+            if _ctrl_sock is None:
+                _ctrl_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                _ctrl_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            try:
+                _ctrl_sock.sendto(data, (target_ip, port))
+            except OSError:
+                try:
+                    _ctrl_sock.close()
+                except Exception:
+                    pass
+                _ctrl_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                _ctrl_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                _ctrl_sock.sendto(data, (target_ip, port))
         return True
     except Exception as exc:
         logger.debug("Error sending control message to %s:%d: %s", target_ip, port, exc)

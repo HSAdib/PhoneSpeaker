@@ -180,11 +180,26 @@
                         android:textColor="#FFFFFF"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
-                        android:hint="Waiting for PC..."
+                        android:hint="Auto-Detecting PC..."
                         android:textColorHint="#557788"
                         android:textSize="13sp"
                         android:fontFamily="monospace"
+                        android:singleLine="true"
+                        android:imeOptions="actionDone"
                         android:inputType="textUri" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnConnectPcIp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="42dp"
+                        android:layout_marginStart="6dp"
+                        android:text="SET IP"
+                        android:textColor="#38B6FF"
+                        app:strokeColor="#38B6FF"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -352,7 +367,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:text="BUFFER PRESET:"
+                android:text="STABILITY / DELAY BUFFER:"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
                 android:textStyle="bold"
@@ -368,7 +383,7 @@
                     android:id="@+id/rbBufLow"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Low (20 ms) — Video &amp; Gaming"
+                    android:text="Low (20 ms) — Fast for Gaming &amp; Video"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
 
@@ -376,7 +391,7 @@
                     android:id="@+id/rbBufMed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Medium (40 ms) — Balanced"
+                    android:text="Medium (40 ms) — Balanced Everyday"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
 
@@ -384,7 +399,7 @@
                     android:id="@+id/rbBufHigh"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="High (80 ms) — Music Stability"
+                    android:text="High (80 ms) — Smooth Music (No Dropouts)"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
 
@@ -393,7 +408,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="Auto Adaptive (+5 ms / -2.5 ms)"
+                    android:text="Auto (Adjusts Automatically)"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
 
@@ -401,7 +416,7 @@
                     android:id="@+id/rbBufCustom"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Custom Target Buffer"
+                    android:text="Custom Buffer Size"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
             </RadioGroup>
@@ -453,7 +468,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="VOLUME / GAIN BOOST:"
+                    android:text="STREAM VOLUME (RELATIVE TO PHONE):"
                     android:textColor="#888888"
                     android:fontFamily="monospace" />
 
@@ -501,7 +516,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="SPEAKER ROUTING (SYNCED WITH PC):"
+                android:text="WHERE TO PLAY SOUND (SYNCED WITH PC):"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
                 android:textStyle="bold"
@@ -526,7 +541,7 @@
                     android:id="@+id/rbTargetBoth"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Both Phone + PC Speakers Synced"
+                    android:text="Both Phone + PC Together (Auto-Synced)"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
 
@@ -534,7 +549,7 @@
                     android:id="@+id/rbTargetPc"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="PC Speaker Only"
+                    android:text="PC Speaker Only (Mute Phone)"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
             </RadioGroup>
@@ -643,7 +658,7 @@
                     android:id="@+id/rbFullDuplex"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Full-Duplex Headset (PC Audio + Phone Mic)"
+                    android:text="Both Together (Hear PC Sound + Use Phone Mic)"
                     android:textColor="#FFFFFF"
                     android:fontFamily="monospace" />
             </RadioGroup>

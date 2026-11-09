@@ -226,12 +226,17 @@ sudo firewall-cmd --add-port=5004/udp --add-port=5005/udp --add-port=5006/udp --
 - **PC → Phone speaker:** captures everything your PC plays and plays it on the phone.
 - **Phone → PC microphone:** streams the phone mic to the PC. Route it into Discord, Zoom, Teams or OBS through a virtual device.
 - **Full-duplex:** speaker and microphone at the same time.
-- **Dual-speaker sync:** play on the phone and on a PC output device together, with an adjustable PC-side delay (0 to 150 ms) so the two line up.
-- **PC-only routing:** mirror to a PC output device without sending to the phone.
+- **Dual-speaker sync:** play on the phone and on a PC output device together (`Both Phone + PC Together (Auto-Synced)`), with 100% automatic delay calibration and optional manual fine-tuning (0 to 150 ms) for drift-free, echo-free dual listening.
+- **PC-only routing:** mirror to a PC output device without sending to the phone (`PC Speaker Only (Mute Phone)`).
 
-**Audio quality**
-- **PCM16** lossless (48 kHz stereo) or **Opus** with 10, 24, 32, 64, 96, 128, 160, 192 or 256 kbps and 5, 10 or 20 ms frames.
-- Any Windows playback format (float32, int16, int24, int32; 44.1, 48, 96 kHz) is converted to 48 kHz stereo, with `soxr` resampling when available.
+**Audio quality & Sound Modes**
+- **4 Sound Modes:**
+  - **Best Quality (QUALITY):** Opus 256 kbps, 10 ms frame, High 80 ms buffer (60 ms when Both Phone + PC Synced), Studio Complexity 10 & Constrained VBR, crystal-clear music and movies.
+  - **Gaming Low-Delay (GAMING):** Opus 128 kbps, 5 ms frame, Low 20 ms buffer, ultra-low latency for competitive gaming and realtime video.
+  - **Balanced Auto (BALANCED):** Opus 192 kbps, 5 ms frame, Auto Adaptive buffer (30 ms base), dynamically adjusts jitter buffer to match network conditions.
+  - **Custom (CUSTOM):** Freely customize codec (Opus 10–320 kbps or Lossless PCM16 1536 kbps), frame size (5, 10, 20 ms), and buffer target (10–200 ms).
+- **Lossless PCM16** (1536 kbps, 48 kHz stereo) or **Opus** with selectable bitrates up to **320 kbps** (10, 24, 32, 64, 96, 128, 160, 192, 256, 320 kbps) with Studio Complexity 10 & Constrained VBR, and 5, 10, or 20 ms frames.
+- Any Windows or Linux playback format (float32, int16, int24, int32; 44.1, 48, 96 kHz) is converted to 48 kHz stereo, with stateful `soxr.ResampleStream` (HQ) eliminating all sample-boundary clicks and crackles.
 - Silence keep-alive keeps the phone's clock running when nothing is playing.
 
 **Playout and robustness (Android)**
@@ -239,7 +244,7 @@ sudo firewall-cmd --add-port=5004/udp --add-port=5005/udp --add-port=5006/udp --
 - Adaptive **jitter buffer** with packet reordering, late-packet dropping and gap concealment. Presets: Low 20 ms, Medium 40 ms, High 80 ms, Auto (+5 ms on underrun, -2.5 ms when clean), or a custom 10 to 200 ms target.
 - Opus in-band FEC and packet-loss concealment.
 - Foreground service with wake lock and Wi-Fi low-latency lock, so audio keeps playing with the screen off.
-- Volume boost 0 to 200%, mute, optional Loudness Enhancer, and audio-focus behaviour: mix with others, pause when another app plays, or always play.
+- Relative volume scaling (0% to 200% with soft-knee limiting, where phone hardware volume = 100% baseline), mute, optional Loudness Enhancer, and audio-focus behaviour: mix with others, pause when another app plays, or always play.
 
 **Control and sync**
 - **Two-way settings sync:** change codec, bitrate, buffer, gain, mute, routing or stream mode on either device and the other follows. A revision counter decides which change is newer.
@@ -303,9 +308,9 @@ Speaker and mic have separate start and stop buttons on both the PC and the phon
 
 | Target | Behaviour |
 |---|---|
-| **Phone Only** | Audio goes to the phone |
-| **Both Synced** | Phone and a PC output device play together; use **PC Sync Delay** to align them |
-| **PC Only** | Audio is mirrored to a PC output device and not sent to the phone |
+| **Phone Speaker Only** | Audio goes to the phone only |
+| **Both Phone + PC Together (Auto-Synced)** | Phone and PC speaker play together; automatic calibration calculates phone-to-PC delay, or fine-tune with **PC Sync Delay** |
+| **PC Speaker Only (Mute Phone)** | Audio is mirrored to a PC output device and muted on the phone |
 
 If you capture a device and play back to the **same** device, you create an echo loop. Capture a virtual device and play to your real speakers or headphones instead.
 
@@ -344,8 +349,8 @@ Starting points, not guarantees. Tune the buffer on the phone from what the tele
 
 | Connection | Codec | Frame | Phone buffer | Notes |
 |---|---|---|---|---|
-| **Phone hotspot (5 GHz)** | PCM16 | 5 ms | 20 to 30 ms | PC joins the phone's access point directly. Usually the best wireless latency. |
-| **Wi-Fi router (5 GHz)** | PCM16 or Opus 192k | 5 ms | 30 to 40 ms | Fine on a clean home network. 2.4 GHz is much more prone to dropouts. |
+| **Phone hotspot (5 GHz)** | PCM16 or Opus 320k | 5 ms | 20 to 30 ms | PC joins the phone's access point directly. Usually the best wireless latency. |
+| **Wi-Fi router (5 GHz)** | Opus 192k / 320k or PCM16 | 5 ms | 30 to 40 ms | Fine on a clean home network. 2.4 GHz is much more prone to dropouts. |
 | **USB tethering** | PCM16 | 5 ms | 15 to 25 ms | No radio jitter, so the lowest and steadiest delay. |
 | **Bluetooth PAN** | Opus 128k | 10 ms | 60 to 80 ms | Highest jitter and least bandwidth of the four. |
 

@@ -628,8 +628,16 @@ class AudioCapture:
 
     def set_frame_ms(self, frame_ms: int) -> None:
         if frame_ms in (5, 10, 20) and frame_ms != self._frame_ms:
-            self._frame_ms = frame_ms
-            self._remainder.clear()
+            with self._lock:
+                self._frame_ms = frame_ms
+                self._remainder.clear()
+                if _SOXR_AVAILABLE and self._in_rate != TARGET_RATE:
+                    try:
+                        self._resampler = soxr.ResampleStream(
+                            self._in_rate, TARGET_RATE, TARGET_CHANNELS, dtype="float32", quality="HQ"
+                        )
+                    except Exception:
+                        self._resampler = None
             logger.info("AudioCapture frame_ms updated to %d ms", frame_ms)
 
     def stop(self) -> None:

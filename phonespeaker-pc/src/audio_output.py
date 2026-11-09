@@ -293,6 +293,7 @@ class PCDelayedAudioPlayer:
         self._dev_rate = sample_rate
         self._dev_channels = channels
         self._use_float32: bool = False
+        self._resampler = None
 
         self._pa: Optional["pyaudio.PyAudio"] = None
         self._stream = None
@@ -392,6 +393,16 @@ class PCDelayedAudioPlayer:
             self._dev_channels = ch
             self._use_float32 = use_f32
 
+            if _SOXR_AVAILABLE and self._dev_rate != self._sample_rate:
+                try:
+                    self._resampler = soxr.ResampleStream(
+                        self._sample_rate, self._dev_rate, self._dev_channels, dtype="float32", quality="HQ"
+                    )
+                except Exception:
+                    self._resampler = None
+            else:
+                self._resampler = None
+
             self._running = True
             self._thread = threading.Thread(target=self._run, name="PCDelayedAudioPlayer", daemon=True)
             self._thread.start()
@@ -431,6 +442,7 @@ class PCDelayedAudioPlayer:
             except Exception:
                 pass
             self._pa = None
+        self._resampler = None
         with self._lock:
             self._buffer.clear()
 
@@ -456,8 +468,14 @@ class PCDelayedAudioPlayer:
 
         if self._dev_rate != self._sample_rate:
             if _SOXR_AVAILABLE:
+                if self._resampler is not None:
+                    try:
+                        resampled = self._resampler.resample_chunk(pcm_2d.astype(np.float32), last=False)
+                        return np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
+                    except Exception:
+                        pass
                 resampled = soxr.resample(
-                    pcm_2d.astype(np.float32), self._sample_rate, self._dev_rate, quality="LQ"
+                    pcm_2d.astype(np.float32), self._sample_rate, self._dev_rate, quality="HQ"
                 )
                 return np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
             in_len = len(pcm_2d)
@@ -552,6 +570,7 @@ class PhoneAudioReceiver:
         self._dev_rate = SAMPLE_RATE
         self._dev_channels = CHANNELS
         self._use_float32: bool = False
+        self._resampler = None
         self._opus_decoder: Optional[OpusDecoder] = None
 
         self._running = False
@@ -621,10 +640,20 @@ class PhoneAudioReceiver:
             self._dev_rate = rate
             self._dev_channels = ch
             self._use_float32 = use_f32
+            if _SOXR_AVAILABLE and self._dev_rate != SAMPLE_RATE:
+                try:
+                    self._resampler = soxr.ResampleStream(
+                        SAMPLE_RATE, self._dev_rate, self._dev_channels, dtype="float32", quality="HQ"
+                    )
+                except Exception:
+                    self._resampler = None
+            else:
+                self._resampler = None
             return True
         return False
 
     def _close_audio_sink(self) -> None:
+        self._resampler = None
         if self._pacat_proc:
             try:
                 self._pacat_proc.terminate()
@@ -777,10 +806,20 @@ class PhoneAudioReceiver:
 
                 if self._dev_rate != SAMPLE_RATE:
                     if _SOXR_AVAILABLE:
-                        resampled = soxr.resample(
-                            pcm_2d.astype(np.float32), SAMPLE_RATE, self._dev_rate, quality="LQ"
-                        )
-                        out_pcm = np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
+                        if self._resampler is not None:
+                            try:
+                                resampled = self._resampler.resample_chunk(pcm_2d.astype(np.float32), last=False)
+                                out_pcm = np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
+                            except Exception:
+                                resampled = soxr.resample(
+                                    pcm_2d.astype(np.float32), SAMPLE_RATE, self._dev_rate, quality="HQ"
+                                )
+                                out_pcm = np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
+                        else:
+                            resampled = soxr.resample(
+                                pcm_2d.astype(np.float32), SAMPLE_RATE, self._dev_rate, quality="HQ"
+                            )
+                            out_pcm = np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
                     else:
                         in_len = len(pcm_2d)
                         out_len = int(round(in_len * self._dev_rate / SAMPLE_RATE))

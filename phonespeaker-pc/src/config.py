@@ -26,9 +26,10 @@ _DEFAULTS: Dict[str, Any] = {
     "target_port": 5004,
     "phone_ip": "",
     "phone_port": 5004,
+    "audio_profile": "BALANCED",
     "codec": 1,          # Unified default: 1=Opus, 0=PCM16
-    "bitrate": 128000,
-    "opus_bitrate_kbps": 128,
+    "bitrate": 192000,
+    "opus_bitrate_kbps": 192,
     "frame_ms": 5,
     "buffer_mode": "AUTO",
     "custom_buffer_ms": 30.0,
@@ -40,6 +41,10 @@ _DEFAULTS: Dict[str, Any] = {
     "pc_sync_delay_ms": 25,
     "adapter_name": "",
     "minimize_to_tray": True,
+    "audio_output_engine": "OBOE_LOW_LATENCY",
+    "enable_audio_effects": False,
+    "exclusive_audio_mode": "MIX_WITH_OTHERS",
+    "stop_on_headset_disconnect": False,
     "config_rev": 1,
 }
 
