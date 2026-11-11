@@ -19,6 +19,19 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import com.google.android.material.button.MaterialButton
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -29,16 +42,41 @@ import java.net.NetworkInterface
 
 class MainActivity : AppCompatActivity() {
 
+    private val TAG = "MainActivity"
     private lateinit var binding: ActivityMainBinding
     private var preStreamDiscoveryChannel: ControlChannel? = null
     private var lastServiceStartTimeMs = 0L
     private val handler = Handler(Looper.getMainLooper())
 
+    private var partyModeScreen: String = "CHOOSER" // "CHOOSER", "HOST", "JOIN"
+    private var isPartyJoinedActive: Boolean = false
+    private var isPartyExtendedActive: Boolean = false
+    private var lastDiscoveredHostsKey: String = ""
+    private var lastJoinKeepAliveMs: Long = 0L
+
+    private val qrScannerLauncher = registerForActivityResult(ScanContract()) { result ->
+        val contents = result.contents?.trim()
+        if (!contents.isNullOrEmpty()) {
+            val (ip, port) = parseHostIpFromUri(contents)
+            if (ip.isNotEmpty()) {
+                showPartyScreen("JOIN")
+                binding.rbPartyJoin.isChecked = true
+                binding.etJoinPartyHostIp.setText(ip)
+                binding.etJoinPartyPort.setText(port.toString())
+                Toast.makeText(this, "Scanned Party Host: $ip:$port — Connecting...", Toast.LENGTH_SHORT).show()
+                if (!AudioStreamService.isStreaming) {
+                    binding.btnTogglePartyJoin.performClick()
+                } else {
+                    ControlChannel.sendPartyJoinAnnouncement(ip)
+                }
+            }
+        }
+    }
+
     private var localRev = 1
     private var lastSyncId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
     private var suppressSync = false
     private var currentFrameMs = 5
-    private var currentPcSyncDelayMs = 25
     private var userEditedPcIp: String? = null
     private var lastAppliedDiscoveredPcIp: String? = null
 
@@ -214,6 +252,14 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        ControlChannel.onPartyHostDiscovered = {
+            runOnUiThread {
+                if (partyModeScreen == "JOIN") {
+                    renderDiscoveredHostButtons()
+                }
+            }
+        }
+
         setupTabs()
         setupUI()
         checkPermissions()
@@ -265,26 +311,175 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        ControlChannel.onPartyHostDiscovered = null
         stopPreStreamDiscovery()
     }
 
     // ------------------------------------------------------------------
-    // Tab Navigation
+    // Tab Navigation & Party QR Helpers
     // ------------------------------------------------------------------
+
+    private fun copyToClipboard(label: String, text: String) {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = ClipData.newPlainText(label, text)
+            clipboard?.setPrimaryClip(clip)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to copy to clipboard: ${e.message}")
+        }
+    }
+
+    private fun parseHostIpFromUri(raw: String): Pair<String, Int> {
+        var s = raw.trim()
+        var port = 5004
+        if (s.startsWith("phonespeaker://join", ignoreCase = true)) {
+            try {
+                val uri = Uri.parse(s)
+                val h = uri.getQueryParameter("host")
+                val p = uri.getQueryParameter("port")?.toIntOrNull()
+                if (!h.isNullOrBlank()) {
+                    return Pair(h.trim(), p ?: 5004)
+                }
+            } catch (_: Exception) {}
+        }
+        for (prefix in listOf("http://", "https://", "udp://", "phonespeaker://")) {
+            if (s.startsWith(prefix, ignoreCase = true)) {
+                s = s.substring(prefix.length).trim()
+            }
+        }
+        s = s.split("/")[0].trim()
+        if (s.contains(":")) {
+            val parts = s.split(":")
+            s = parts[0].trim()
+            parts.getOrNull(1)?.toIntOrNull()?.let { port = it }
+        }
+        return Pair(s, port)
+    }
+
+    private fun updateHostQrCode() {
+        val hostIp = ControlChannel.getPreferredHostIp()
+        binding.tvPartyHostIpBanner.text = "👑 HOST IP: $hostIp : 5004"
+        val model = ControlChannel.getPhoneModelName()
+        val uri = "phonespeaker://join?host=$hostIp&port=5004&name=${Uri.encode(model)}"
+        try {
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(uri, BarcodeFormat.QR_CODE, 512, 512)
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
+                }
+            }
+            binding.ivPartyHostQr.setImageBitmap(bmp)
+            binding.ivPartyHostQr.setOnClickListener {
+                copyToClipboard("PhoneSpeaker Party Join Link", uri)
+                Toast.makeText(this, "Copied Party Join link to clipboard!", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to generate host QR code: ${e.message}")
+        }
+    }
+
+    private fun updateExtendedQrCode() {
+        val extIp = ControlChannel.getPreferredHostIp()
+        binding.tvExtendedHostIpBanner.text = "📡 EXTENDED HOST IP: $extIp : 5004"
+        val model = ControlChannel.getPhoneModelName()
+        val uri = "phonespeaker://join?host=$extIp&port=5004&name=${Uri.encode("$model (Extended)")}"
+        try {
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(uri, BarcodeFormat.QR_CODE, 512, 512)
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) Color.BLACK else Color.WHITE)
+                }
+            }
+            binding.ivExtendedHostQr.setImageBitmap(bmp)
+            binding.ivExtendedHostQr.setOnClickListener {
+                copyToClipboard("Extended Party Join Link", uri)
+                Toast.makeText(this, "Copied Extended Party Join link to clipboard!", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to generate extended QR code: ${e.message}")
+        }
+    }
+
+    private fun showQrPasteDialog() {
+        var clipboardText = ""
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            if (clipboard?.hasPrimaryClip() == true) {
+                val item = clipboard.primaryClip?.getItemAt(0)
+                clipboardText = item?.text?.toString()?.trim().orEmpty()
+            }
+        } catch (_: Exception) {}
+
+        val input = android.widget.EditText(this).apply {
+            hint = "Paste phonespeaker://join link or Host IP"
+            setText(clipboardText)
+            setSelectAllOnFocus(true)
+            setTextColor(0xFFFFFFFF.toInt())
+            setHintTextColor(0xFF666666.toInt())
+            background = null
+            setPadding(32, 24, 32, 24)
+            textSize = 13f
+        }
+
+        val container = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(0xFF141414.toInt())
+            addView(input)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Party Host Address / QR Link")
+            .setMessage("Paste a Party QR link (phonespeaker://join?host=...) or Host IP address:")
+            .setView(container)
+            .setPositiveButton("Use Address") { _, _ ->
+                val entered = input.text.toString().trim()
+                if (entered.isNotEmpty()) {
+                    val (ip, port) = parseHostIpFromUri(entered)
+                    if (ip.isNotEmpty()) {
+                        showPartyScreen("JOIN")
+                        binding.etJoinPartyHostIp.setText(ip)
+                        binding.etJoinPartyPort.setText(port.toString())
+                        Toast.makeText(this, "Set Party Host: $ip:$port", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     private fun setupTabs() {
         binding.tabBtnPlayer.setOnClickListener { selectTab(0) }
         binding.tabBtnServer.setOnClickListener { selectTab(1) }
-        binding.tabBtnSettings.setOnClickListener { selectTab(2) }
+        binding.tabBtnParty.setOnClickListener { selectTab(2) }
+        binding.tabBtnSettings.setOnClickListener { selectTab(3) }
         selectTab(0)
     }
 
     private fun selectTab(index: Int) {
         binding.layoutPlayerTab.visibility = if (index == 0) View.VISIBLE else View.GONE
         binding.layoutServerTab.visibility = if (index == 1) View.VISIBLE else View.GONE
-        binding.layoutSettingsTab.visibility = if (index == 2) View.VISIBLE else View.GONE
+        binding.layoutPartyTab.visibility = if (index == 2) View.VISIBLE else View.GONE
+        binding.layoutSettingsTab.visibility = if (index == 3) View.VISIBLE else View.GONE
+        if (index == 2) {
+            showPartyScreen(partyModeScreen)
+            if (partyModeScreen == "HOST") {
+                updateHostQrCode()
+            } else if (partyModeScreen == "JOIN") {
+                renderDiscoveredHostButtons()
+                if (isPartyExtendedActive) {
+                    updateExtendedQrCode()
+                }
+            }
+        }
 
-        val tabs = listOf(binding.tabBtnPlayer, binding.tabBtnServer, binding.tabBtnSettings)
+        val tabs = listOf(binding.tabBtnPlayer, binding.tabBtnServer, binding.tabBtnParty, binding.tabBtnSettings)
         for ((i, btn) in tabs.withIndex()) {
             val active = (i == index)
             btn.setTextColor(if (active) 0xFF00FF00.toInt() else 0xFF888888.toInt())
@@ -295,6 +490,86 @@ class MainActivity : AppCompatActivity() {
             btn.backgroundTintList = android.content.res.ColorStateList.valueOf(
                 if (active) 0xFF0F220F.toInt() else 0xFF000000.toInt()
             )
+        }
+    }
+
+    private fun showPartyScreen(screen: String) {
+        partyModeScreen = screen
+        binding.layoutPartyChooser.visibility = if (screen == "CHOOSER") View.VISIBLE else View.GONE
+        binding.layoutPartyHostSection.visibility = if (screen == "HOST") View.VISIBLE else View.GONE
+        binding.layoutPartyJoinSection.visibility = if (screen == "JOIN") View.VISIBLE else View.GONE
+
+        if (screen == "HOST") {
+            binding.rbPartyHost.isChecked = true
+            ControlChannel.isHostingOrExtendingParty = true
+            ControlChannel.isExtendingParty = false
+            updateHostQrCode()
+        } else if (screen == "JOIN") {
+            binding.rbPartyJoin.isChecked = true
+            ControlChannel.isHostingOrExtendingParty = isPartyExtendedActive
+            ControlChannel.isExtendingParty = isPartyExtendedActive
+            startPreStreamDiscoveryIfNeeded()
+            renderDiscoveredHostButtons()
+        } else {
+            if (!AudioStreamService.isStreaming) {
+                ControlChannel.isHostingOrExtendingParty = false
+                ControlChannel.isExtendingParty = false
+            }
+        }
+        updateStatsUI()
+    }
+
+    private fun renderDiscoveredHostButtons() {
+        val now = SystemClock.elapsedRealtime()
+        val hosts = ControlChannel.discoveredPartyHosts.values.filter { (now - it.lastSeenMs) < 15000L }
+        val currentKey = hosts.joinToString(";") { "${it.ip}:${it.port}:${it.name}:${it.isExtended}" }
+        if (currentKey == lastDiscoveredHostsKey && binding.layoutDiscoveredHostsList.childCount == hosts.size) {
+            return
+        }
+        lastDiscoveredHostsKey = currentKey
+
+        binding.layoutDiscoveredHostsList.removeAllViews()
+        if (hosts.isEmpty()) {
+            binding.tvPartyDiscoveredHosts.visibility = View.VISIBLE
+            binding.tvPartyDiscoveredHosts.text = "Scanning Wi-Fi / Hotspot for Party Hosts... (Hosts appear here automatically)"
+            binding.tvPartyDiscoveredHosts.setTextColor(0xFF888888.toInt())
+            return
+        }
+
+        binding.tvPartyDiscoveredHosts.visibility = View.VISIBLE
+        binding.tvPartyDiscoveredHosts.text = "Discovered Party Hosts (${hosts.size}) — Tap to Connect:"
+        binding.tvPartyDiscoveredHosts.setTextColor(0xFF00EEEE.toInt())
+
+        for (h in hosts) {
+            val btn = MaterialButton(this).apply {
+                val tag = if (h.isExtended) "[EXTENDED] " else "👑 "
+                text = "$tag${h.name} • ${h.ip}:${h.port}  [ TAP TO JOIN ]"
+                setTextColor(0xFF00EEEE.toInt())
+                strokeColor = ColorStateList.valueOf(0xFF00EEEE.toInt())
+                strokeWidth = 2
+                backgroundTintList = ColorStateList.valueOf(0xFF001822.toInt())
+                textSize = 12f
+                isAllCaps = false
+                setPadding(16, 12, 16, 12)
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 8
+                }
+                layoutParams = params
+                setOnClickListener {
+                    binding.etJoinPartyHostIp.setText(h.ip)
+                    binding.etJoinPartyPort.setText(h.port.toString())
+                    Toast.makeText(this@MainActivity, "Selected Host: ${h.name} (${h.ip})", Toast.LENGTH_SHORT).show()
+                    if (!AudioStreamService.isStreaming) {
+                        binding.btnTogglePartyJoin.performClick()
+                    } else {
+                        ControlChannel.sendPartyJoinAnnouncement(h.ip)
+                    }
+                }
+            }
+            binding.layoutDiscoveredHostsList.addView(btn)
         }
     }
 
@@ -573,34 +848,6 @@ class MainActivity : AppCompatActivity() {
             onLocalSettingChanged()
         }
 
-        // Speaker routing & Codec selection
-        binding.rgOutputTargets.setOnCheckedChangeListener { _, checkedId ->
-            if (suppressSync) return@setOnCheckedChangeListener
-            if (checkedId == R.id.rbTargetBoth) {
-                suppressSync = true
-                try {
-                    currentFrameMs = 10
-                    binding.rbProfileQuality.isChecked = true
-                    binding.rbCodecOpus.isChecked = true
-                    binding.rbPlayerCodecOpus.isChecked = true
-                    val idx = bitrateValues.indexOf("256")
-                    if (idx >= 0) {
-                        binding.spinnerBitrate.setSelection(idx)
-                        binding.spPlayerBitrate.setSelection(idx)
-                    }
-                    binding.rbBufCustom.isChecked = true
-                    binding.sliderTargetBuffer.value = quantizeTarget(60f)
-                    binding.tvTargetBufferValue.text = "60 ms"
-                    AudioNative.nativeSetTargetBufferMs(60f)
-                    AudioNative.nativeSetAutoMode(false)
-                    updateCodecBitrateUiState(true)
-                } finally {
-                    suppressSync = false
-                }
-            }
-            onLocalSettingChanged()
-        }
-
         // Role & Advanced settings listeners
         binding.rgServerRole.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
         binding.rgOutputEngine.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
@@ -623,11 +870,267 @@ class MainActivity : AppCompatActivity() {
         binding.rgExclusiveMode.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
         binding.switchHeadsetDisconnect.setOnCheckedChangeListener { _, _ -> if (!suppressSync) onLocalSettingChanged() }
 
+        // Party Mode Tab Controls (3-State Chooser -> Host or Join -> Extend)
+        binding.btnPartyChooseHost.setOnClickListener {
+            showPartyScreen("HOST")
+        }
+
+        binding.btnPartyChooseJoin.setOnClickListener {
+            showPartyScreen("JOIN")
+        }
+
+        binding.btnPartyHostBack.setOnClickListener {
+            if (AudioStreamService.isStreaming && (partyModeScreen == "HOST" || binding.rbPartyHost.isChecked)) {
+                val intent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_STOP
+                }
+                startService(intent)
+                AudioNative.nativeSetPartyRelay(false)
+                ControlChannel.isHostingOrExtendingParty = false
+                ControlChannel.isExtendingParty = false
+            }
+            showPartyScreen("CHOOSER")
+        }
+
+        binding.btnPartyJoinBack.setOnClickListener {
+            if (AudioStreamService.isStreaming && partyModeScreen == "JOIN") {
+                val intent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_STOP
+                }
+                startService(intent)
+            }
+            isPartyJoinedActive = false
+            isPartyExtendedActive = false
+            binding.switchExtendParty.isChecked = false
+            AudioNative.nativeSetPartyRelay(false)
+            ControlChannel.isHostingOrExtendingParty = false
+            ControlChannel.isExtendingParty = false
+            binding.layoutPartyExtendCard.visibility = View.GONE
+            binding.layoutExtendDetails.visibility = View.GONE
+            binding.btnToggleExtendParty.text = "[ 📡 EXTEND PARTY (GENERATE HOTSPOT QR & IP) ]"
+            binding.btnToggleExtendParty.setTextColor(0xFF00EEEE.toInt())
+            binding.btnToggleExtendParty.strokeColor = ColorStateList.valueOf(0xFF00EEEE.toInt())
+            showPartyScreen("CHOOSER")
+        }
+
+        binding.btnRescanPartyHosts.setOnClickListener {
+            startPreStreamDiscoveryIfNeeded()
+            ControlChannel.sendPreStreamBeacon()
+            lastDiscoveredHostsKey = ""
+            renderDiscoveredHostButtons()
+            Toast.makeText(this, "Scanning for party hosts...", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnToggleExtendParty.setOnClickListener {
+            isPartyExtendedActive = !isPartyExtendedActive
+            binding.switchExtendParty.isChecked = isPartyExtendedActive
+            ControlChannel.isExtendingParty = isPartyExtendedActive
+            ControlChannel.isHostingOrExtendingParty = isPartyExtendedActive
+            AudioNative.nativeSetPartyRelay(isPartyExtendedActive)
+            if (isPartyExtendedActive) {
+                AudioNative.nativeSetPartyPeers(ControlChannel.partyPeerIps.toTypedArray())
+                updateExtendedQrCode()
+                binding.layoutExtendDetails.visibility = View.VISIBLE
+                binding.btnToggleExtendParty.text = "[ ■ STOP EXTENDING PARTY ]"
+                binding.btnToggleExtendParty.setTextColor(0xFFFF4444.toInt())
+                binding.btnToggleExtendParty.strokeColor = ColorStateList.valueOf(0xFFFF4444.toInt())
+            } else {
+                binding.layoutExtendDetails.visibility = View.GONE
+                binding.btnToggleExtendParty.text = "[ 📡 EXTEND PARTY (GENERATE HOTSPOT QR & IP) ]"
+                binding.btnToggleExtendParty.setTextColor(0xFF00EEEE.toInt())
+                binding.btnToggleExtendParty.strokeColor = ColorStateList.valueOf(0xFF00EEEE.toInt())
+            }
+            updateStatsUI()
+        }
+
+        binding.rgPartyRole.setOnCheckedChangeListener { _, checkedId ->
+            val isHost = (checkedId == binding.rbPartyHost.id)
+            if (isHost) {
+                showPartyScreen("HOST")
+            } else {
+                showPartyScreen("JOIN")
+            }
+        }
+
+        binding.btnRefreshHostIpQr.setOnClickListener {
+            updateHostQrCode()
+            Toast.makeText(this, "Refreshed Host IP & QR Code", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnTogglePartyHost.setOnClickListener {
+            if (AudioStreamService.isStreaming) {
+                val intent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_STOP
+                }
+                startService(intent)
+                AudioNative.nativeSetPartyRelay(false)
+                ControlChannel.isHostingOrExtendingParty = false
+                ControlChannel.isExtendingParty = false
+            } else {
+                ControlChannel.isHostingOrExtendingParty = true
+                ControlChannel.isExtendingParty = false
+                AudioNative.nativeSetPartyRelay(true)
+                AudioNative.nativeSetPartyPeers(ControlChannel.partyPeerIps.toTypedArray())
+                val intent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_START
+                    putExtra(AudioStreamService.EXTRA_AUDIO_ENGINE, if (binding.rbEngineAudioTrack.isChecked) "AUDIOTRACK_STANDARD" else "OBOE_LOW_LATENCY")
+                    putExtra(AudioStreamService.EXTRA_AUDIO_FX, binding.switchAudioFx.isChecked)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+            refreshServiceButtonState()
+        }
+
+        binding.btnTogglePartyJoin.setOnClickListener {
+            if (AudioStreamService.isStreaming) {
+                val intent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_STOP
+                }
+                startService(intent)
+                AudioNative.nativeSetPartyRelay(false)
+                ControlChannel.isHostingOrExtendingParty = false
+                ControlChannel.isExtendingParty = false
+                isPartyJoinedActive = false
+                isPartyExtendedActive = false
+                binding.switchExtendParty.isChecked = false
+                binding.layoutPartyExtendCard.visibility = View.GONE
+                binding.layoutExtendDetails.visibility = View.GONE
+                binding.btnToggleExtendParty.text = "[ 📡 EXTEND PARTY (GENERATE HOTSPOT QR & IP) ]"
+                binding.btnToggleExtendParty.setTextColor(0xFF00EEEE.toInt())
+                binding.btnToggleExtendParty.strokeColor = ColorStateList.valueOf(0xFF00EEEE.toInt())
+            } else {
+                var hostIp = binding.etJoinPartyHostIp.text?.toString()?.trim().orEmpty()
+                if (hostIp.isEmpty()) {
+                    val firstHost = ControlChannel.discoveredPartyHosts.values.firstOrNull()
+                    if (firstHost != null) {
+                        hostIp = firstHost.ip
+                        binding.etJoinPartyHostIp.setText(hostIp)
+                        binding.etJoinPartyPort.setText(firstHost.port.toString())
+                    }
+                }
+                if (hostIp.isEmpty()) {
+                    Toast.makeText(this, "Please enter or select a Party Host IP address", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val (parsedIp, parsedPort) = parseHostIpFromUri(hostIp)
+                binding.etJoinPartyHostIp.setText(parsedIp)
+                binding.etJoinPartyPort.setText(parsedPort.toString())
+                binding.etPcIp.setText(parsedIp)
+                ControlChannel.lastKnownPcIp = parsedIp
+
+                ControlChannel.partyPeerIps.clear()
+                AudioNative.nativeSetPartyPeers(emptyArray())
+                ControlChannel.sendPartyJoinAnnouncement(parsedIp)
+                lastJoinKeepAliveMs = SystemClock.elapsedRealtime()
+
+                isPartyJoinedActive = true
+                val isExtend = isPartyExtendedActive || binding.switchExtendParty.isChecked
+                ControlChannel.isExtendingParty = isExtend
+                ControlChannel.isHostingOrExtendingParty = isExtend
+                AudioNative.nativeSetPartyRelay(isExtend)
+                if (isExtend) {
+                    AudioNative.nativeSetPartyPeers(ControlChannel.partyPeerIps.toTypedArray())
+                }
+
+                binding.layoutPartyExtendCard.visibility = View.VISIBLE
+
+                val intent = Intent(this, AudioStreamService::class.java).apply {
+                    action = AudioStreamService.ACTION_START
+                    putExtra(AudioStreamService.EXTRA_AUDIO_ENGINE, if (binding.rbEngineAudioTrack.isChecked) "AUDIOTRACK_STANDARD" else "OBOE_LOW_LATENCY")
+                    putExtra(AudioStreamService.EXTRA_AUDIO_FX, binding.switchAudioFx.isChecked)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+            refreshServiceButtonState()
+        }
+
+        binding.switchExtendParty.setOnCheckedChangeListener { _, isChecked ->
+            isPartyExtendedActive = isChecked
+            ControlChannel.isExtendingParty = isChecked
+            ControlChannel.isHostingOrExtendingParty = isChecked || (partyModeScreen == "HOST")
+            AudioNative.nativeSetPartyRelay(isChecked)
+            binding.layoutExtendDetails.visibility = if (isChecked) View.VISIBLE else View.GONE
+            if (isChecked) {
+                updateExtendedQrCode()
+                AudioNative.nativeSetPartyPeers(ControlChannel.partyPeerIps.toTypedArray())
+            }
+            updateStatsUI()
+        }
+
+        binding.btnRefreshExtendIp.setOnClickListener {
+            updateExtendedQrCode()
+            Toast.makeText(this, "Refreshed Extended IP & QR Code", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.tvPartyDiscoveredHosts.setOnClickListener {
+            val now = SystemClock.elapsedRealtime()
+            val hosts = ControlChannel.discoveredPartyHosts.values.filter { (now - it.lastSeenMs) < 15000L }
+            if (hosts.isEmpty()) {
+                Toast.makeText(this, "No active Party Hosts discovered yet.", Toast.LENGTH_SHORT).show()
+            } else if (hosts.size == 1) {
+                val h = hosts.first()
+                binding.etJoinPartyHostIp.setText(h.ip)
+                binding.etJoinPartyPort.setText(h.port.toString())
+                Toast.makeText(this, "Selected Host: ${h.name} (${h.ip})", Toast.LENGTH_SHORT).show()
+            } else {
+                val hostList = hosts.toList()
+                val items = hostList.map { "${if (it.isExtended) "[EXTENDED] " else ""}${it.name} — ${it.ip}:${it.port}" }.toTypedArray()
+                AlertDialog.Builder(this)
+                    .setTitle("Select Discovered Party Host")
+                    .setItems(items) { _, which ->
+                        val selected = hostList[which]
+                        binding.etJoinPartyHostIp.setText(selected.ip)
+                        binding.etJoinPartyPort.setText(selected.port.toString())
+                        Toast.makeText(this, "Selected: ${selected.name} (${selected.ip})", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+
+        binding.btnScanPartyQrCamera.setOnClickListener {
+            val options = ScanOptions().apply {
+                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                setPrompt("Scan Party Host or Extended Host QR Code")
+                setBeepEnabled(false)
+                setOrientationLocked(false)
+            }
+            qrScannerLauncher.launch(options)
+        }
+
+        binding.btnScanPartyQr.setOnClickListener {
+            showQrPasteDialog()
+        }
+
+        binding.btnAddPartyPeer.setOnClickListener {
+            val raw = binding.etPartyPeerIp.text?.toString()?.trim().orEmpty()
+            val (ip, _) = parseHostIpFromUri(raw)
+            if (ip.isNotEmpty() && !ControlChannel.partyPeerIps.contains(ip)) {
+                ControlChannel.partyPeerIps.add(ip)
+                AudioNative.nativeSetPartyPeers(ControlChannel.partyPeerIps.toTypedArray())
+                binding.etPartyPeerIp.text?.clear()
+                updateStatsUI()
+            }
+        }
+        binding.btnClearPartyPeers.setOnClickListener {
+            ControlChannel.partyPeerIps.clear()
+            AudioNative.nativeSetPartyPeers(emptyArray())
+            updateStatsUI()
+        }
+
         // Help button
         binding.btnHelp.setOnClickListener { showHelpDialog() }
         updateExpectedDelayUI()
 
-        // Start / Stop Player Button
+        // Start / Stop Player Button (Strictly Normal 1-to-1 Stream: Relaying is OFF)
         binding.btnToggleStream.setOnClickListener {
             if (AudioStreamService.isStreaming) {
                 val intent = Intent(this, AudioStreamService::class.java).apply {
@@ -635,6 +1138,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 startService(intent)
             } else {
+                AudioNative.nativeSetPartyRelay(false)
+                ControlChannel.isHostingOrExtendingParty = false
+                ControlChannel.isExtendingParty = false
                 lastServiceStartTimeMs = SystemClock.elapsedRealtime()
                 stopPreStreamDiscovery()
                 val intent = Intent(this, AudioStreamService::class.java).apply {
@@ -705,6 +1211,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnRefreshIps.setOnClickListener { refreshLocalIps() }
 
         updateCodecBitrateUiState(binding.rbCodecOpus.isChecked)
+        showPartyScreen("CHOOSER")
         binding.root.post { suppressSync = false }
     }
 
@@ -720,13 +1227,8 @@ class MainActivity : AppCompatActivity() {
         binding.tvSyncRev.text = "REV: $localRev"
         updateExpectedDelayUI()
 
-        val isPcOnly = (binding.rgOutputTargets.checkedRadioButtonId == R.id.rbTargetPc)
         val userMuted = (binding.btnMuteToggle.text == "MUTED")
-        if (isPcOnly) {
-            AudioNative.nativeSetMuted(true)
-        } else {
-            AudioNative.nativeSetMuted(userMuted)
-        }
+        AudioNative.nativeSetMuted(userMuted)
 
         val json = JSONObject().apply {
             put("type", "CONFIG_SYNC")
@@ -739,11 +1241,6 @@ class MainActivity : AppCompatActivity() {
             })
             put("pc_source", "SYSTEM_AUDIO")
             put("phone_source", "MIC")
-            put("output_targets", when (binding.rgOutputTargets.checkedRadioButtonId) {
-                R.id.rbTargetBoth -> "BOTH_SYNCED"
-                R.id.rbTargetPc -> "PC_ONLY"
-                else -> "PHONE_ONLY"
-            })
             put("audio_profile", when (binding.rgAudioProfile.checkedRadioButtonId) {
                 R.id.rbProfileQuality -> "QUALITY"
                 R.id.rbProfileGaming -> "GAMING"
@@ -753,7 +1250,6 @@ class MainActivity : AppCompatActivity() {
             put("codec", if (binding.rbCodecOpus.isChecked || binding.rbPlayerCodecOpus.isChecked) 1 else 0)
             put("opus_bitrate_kbps", bitrateValues.getOrElse(binding.spinnerBitrate.selectedItemPosition) { "128" }.toInt())
             put("frame_ms", currentFrameMs)
-            put("pc_sync_delay_ms", currentPcSyncDelayMs)
             put("buffer_mode", when (binding.rgBufferMode.checkedRadioButtonId) {
                 R.id.rbBufLow -> "LOW"
                 R.id.rbBufMed -> "MEDIUM"
@@ -774,6 +1270,7 @@ class MainActivity : AppCompatActivity() {
                 else -> "MIX_WITH_OTHERS"
             })
             put("stop_on_headset_disconnect", binding.switchHeadsetDisconnect.isChecked)
+            put("party_mode", (partyModeScreen == "HOST") || isPartyExtendedActive)
         }
 
         val lowLatency = binding.rbEngineOboe.isChecked && !binding.switchAudioFx.isChecked
@@ -859,17 +1356,6 @@ class MainActivity : AppCompatActivity() {
                     else -> binding.rbProfileCustom.isChecked = true
                 }
             }
-            if (json.has("output_targets")) {
-                val targets = json.getString("output_targets")
-                when (targets) {
-                    "BOTH_SYNCED" -> binding.rbTargetBoth.isChecked = true
-                    "PC_ONLY" -> binding.rbTargetPc.isChecked = true
-                    else -> binding.rbTargetPhone.isChecked = true
-                }
-                if (targets == "PC_ONLY") {
-                    AudioNative.nativeSetMuted(true)
-                }
-            }
             if (json.has("codec")) {
                 val isOpus = (json.getInt("codec") == 1)
                 binding.rbCodecOpus.isChecked = isOpus
@@ -887,9 +1373,6 @@ class MainActivity : AppCompatActivity() {
             }
             if (json.has("frame_ms")) {
                 currentFrameMs = json.getInt("frame_ms")
-            }
-            if (json.has("pc_sync_delay_ms")) {
-                currentPcSyncDelayMs = json.getInt("pc_sync_delay_ms")
             }
             updateCodecBitrateUiState(binding.rbCodecOpus.isChecked)
             updateExpectedDelayUI()
@@ -975,9 +1458,39 @@ class MainActivity : AppCompatActivity() {
         if (AudioStreamService.isStreaming) {
             binding.btnToggleStream.text = "[ ■ STOP SPEAKER PLAYER (PORT 5004) ]"
             binding.btnToggleStream.setTextColor(0xFFFF4444.toInt())
+            binding.btnTogglePartyStream.text = "[ ■ LEAVE / STOP PARTY STREAM ]"
+            binding.btnTogglePartyStream.setTextColor(0xFFFF4444.toInt())
+            binding.btnTogglePartyStream.backgroundTintList = ColorStateList.valueOf(0xFF330000.toInt())
+            val isHostMode = (partyModeScreen == "HOST") || binding.rbPartyHost.isChecked
+            if (isHostMode || (AudioNative.nativeIsPartyRelay() && !isPartyExtendedActive && !binding.switchExtendParty.isChecked)) {
+                binding.btnTogglePartyHost.text = "[ ■ STOP PARTY BROADCAST (HOST) ]"
+                binding.btnTogglePartyHost.setTextColor(0xFFFF4444.toInt())
+                binding.btnTogglePartyHost.backgroundTintList = ColorStateList.valueOf(0xFF330000.toInt())
+                binding.btnTogglePartyHost.strokeColor = ColorStateList.valueOf(0xFFFF4444.toInt())
+            } else {
+                if (isPartyExtendedActive || binding.switchExtendParty.isChecked) {
+                    binding.btnTogglePartyJoin.text = "[ ■ STOP EXTENDING & LEAVE PARTY ]"
+                } else {
+                    binding.btnTogglePartyJoin.text = "[ ■ LEAVE PARTY STREAM ]"
+                }
+                binding.btnTogglePartyJoin.setTextColor(0xFFFF4444.toInt())
+                binding.btnTogglePartyJoin.backgroundTintList = ColorStateList.valueOf(0xFF330000.toInt())
+                binding.btnTogglePartyJoin.strokeColor = ColorStateList.valueOf(0xFFFF4444.toInt())
+            }
         } else {
             binding.btnToggleStream.text = "[ ▶ START SPEAKER PLAYER (PORT 5004) ]"
             binding.btnToggleStream.setTextColor(0xFF00FF00.toInt())
+            binding.btnTogglePartyStream.text = "[ 🎉 START / JOIN PARTY STREAM (PORT 5004) ]"
+            binding.btnTogglePartyStream.setTextColor(0xFF00FF00.toInt())
+            binding.btnTogglePartyStream.backgroundTintList = ColorStateList.valueOf(0xFF002B00.toInt())
+            binding.btnTogglePartyHost.text = "[ 👑 START PARTY BROADCAST (HOST) ]"
+            binding.btnTogglePartyHost.setTextColor(0xFF00FF00.toInt())
+            binding.btnTogglePartyHost.backgroundTintList = ColorStateList.valueOf(0xFF002B00.toInt())
+            binding.btnTogglePartyHost.strokeColor = ColorStateList.valueOf(0xFF00FF00.toInt())
+            binding.btnTogglePartyJoin.text = if (isPartyExtendedActive || binding.switchExtendParty.isChecked) "[ 📡 JOIN & EXTEND PARTY ]" else "[ 🎧 JOIN PARTY STREAM ]"
+            binding.btnTogglePartyJoin.setTextColor(0xFF00FF00.toInt())
+            binding.btnTogglePartyJoin.backgroundTintList = ColorStateList.valueOf(0xFF002B00.toInt())
+            binding.btnTogglePartyJoin.strokeColor = ColorStateList.valueOf(0xFF00FF00.toInt())
         }
 
         if (AudioStreamService.isMicStreaming) {
@@ -1053,7 +1566,88 @@ class MainActivity : AppCompatActivity() {
                 if (isConnected) "💻 Connected to: $pcName ($displayIp)"
                 else "💻 PC ($displayIp) — Idle / Waiting..."
             } else "💻 Waiting for PC connection..."
-            binding.tvConnectedDeviceSub.text = "📱 This Phone: ${ControlChannel.getPhoneModelName()}"
+            val partyPeers = ControlChannel.partyPeerIps.size
+            binding.tvConnectedDeviceSub.text = if (partyPeers > 0) {
+                "📱 ${ControlChannel.getPhoneModelName()}  •  🎉 Party Mode: $partyPeers peer(s)"
+            } else {
+                "📱 This Phone: ${ControlChannel.getPhoneModelName()}"
+            }
+
+            // Party Tab UI Status & Peers List
+            val isRelay = AudioNative.nativeIsPartyRelay()
+            val isExtend = isPartyExtendedActive || binding.switchExtendParty.isChecked
+            if (AudioStreamService.isStreaming) {
+                if ((partyModeScreen == "HOST") || binding.rbPartyHost.isChecked || (isRelay && !isExtend)) {
+                    binding.tvPartyStatusBanner.text = "PARTY STATUS: HOSTING / RELAYING ($partyPeers peer(s) connected)"
+                    binding.tvPartyStatusBanner.setTextColor(0xFF00FF00.toInt())
+                } else if (isExtend) {
+                    binding.tvPartyStatusBanner.text = "PARTY STATUS: JOINED & EXTENDING ($partyPeers downstream peer(s))"
+                    binding.tvPartyStatusBanner.setTextColor(0xFF00FF00.toInt())
+                } else {
+                    binding.tvPartyStatusBanner.text = "PARTY STATUS: JOINED & PLAYING (Shared Sound Active)"
+                    binding.tvPartyStatusBanner.setTextColor(0xFF00FF00.toInt())
+                }
+            } else {
+                binding.tvPartyStatusBanner.text = "PARTY STATUS: STANDBY — Tap Start/Join Party Stream"
+                binding.tvPartyStatusBanner.setTextColor(0xFF888888.toInt())
+            }
+
+            // Update Host peers list
+            val sbPeers = StringBuilder()
+            if (ControlChannel.partyPeerIps.isNotEmpty()) {
+                sbPeers.append("🎉 Connected Joiners ($partyPeers):\n")
+                for ((idx, peerIp) in ControlChannel.partyPeerIps.withIndex()) {
+                    sbPeers.append("   #${idx + 1}  $peerIp:5004  •  CONNECTED\n")
+                }
+            } else {
+                sbPeers.append("Waiting for other devices to join...")
+            }
+            binding.tvPartyHostPeersList.text = sbPeers.toString().trimEnd()
+            binding.tvPartyPeersList.text = sbPeers.toString().trimEnd()
+
+            // Update Extended Peers list
+            if (isExtend) {
+                val extPeers = ControlChannel.partyPeerIps
+                if (extPeers.isNotEmpty()) {
+                    val sbExt = StringBuilder("📡 Connected Downstream Devices (${extPeers.size}):\n")
+                    for ((idx, peerIp) in extPeers.withIndex()) {
+                        sbExt.append("   #${idx + 1}  $peerIp:5004  •  RELAYING\n")
+                    }
+                    binding.tvExtendedPeersList.text = sbExt.toString().trimEnd()
+                } else {
+                    binding.tvExtendedPeersList.text = "Extended Party Peers: Waiting for friends to scan your QR..."
+                }
+            }
+
+            // Update Discovered Hosts list
+            if (partyModeScreen == "JOIN") {
+                renderDiscoveredHostButtons()
+            }
+
+            // Party Joiner keep-alive re-announcement every 3s so the Host keeps this Joiner registered
+            val nowMs = SystemClock.elapsedRealtime()
+            if (isPartyJoinedActive && AudioStreamService.isStreaming && (nowMs - lastJoinKeepAliveMs >= 3000L)) {
+                lastJoinKeepAliveMs = nowMs
+                val hIp = binding.etJoinPartyHostIp.text?.toString()?.trim().orEmpty()
+                if (hIp.isNotEmpty()) {
+                    val (parsedHostIp, _) = parseHostIpFromUri(hIp)
+                    if (parsedHostIp.isNotEmpty()) {
+                        ControlChannel.sendPartyJoinAnnouncement(parsedHostIp)
+                    }
+                }
+            }
+
+            // Update Joiner status
+            if (AudioStreamService.isStreaming && ((partyModeScreen == "JOIN") || !binding.rbPartyHost.isChecked)) {
+                val hIp = binding.etJoinPartyHostIp.text?.toString()?.trim().orEmpty()
+                val activeTarget = if (hIp.isNotEmpty()) hIp else displayIp
+                val extSuffix = if (isExtend) " • Re-broadcasting to extended peers" else ""
+                binding.tvPartyJoinStatus.text = "PARTY JOINER: Connected to $activeTarget:5004 • Playing host sound in sync$extSuffix"
+                binding.tvPartyJoinStatus.setTextColor(0xFF00FF00.toInt())
+            } else {
+                binding.tvPartyJoinStatus.text = "PARTY JOINER: Standby — Enter host IP and tap Join"
+                binding.tvPartyJoinStatus.setTextColor(0xFF888888.toInt())
+            }
 
             // Mic TX PPS
             val micPps = AudioStreamService.micStreamerInstance?.txPps?.get() ?: 0

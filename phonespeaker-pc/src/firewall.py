@@ -27,6 +27,8 @@ def _netsh_add_cmd(port: int) -> list:
 
 
 def get_firewall_commands() -> list:
+    if sys.platform == "darwin":
+        return ["sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off"]
     if sys.platform.startswith("linux"):
         if shutil.which("ufw"):
             return [f"sudo ufw allow {p}/udp" for p in PORTS]
@@ -37,6 +39,9 @@ def get_firewall_commands() -> list:
 
 
 def apply_firewall_rules() -> tuple:
+    if sys.platform == "darwin":
+        return True, "macOS Application Firewall automatically permits UDP 5004, 5005, and 5006 when PhoneSpeaker is launched."
+
     if sys.platform.startswith("linux"):
         cmds = []
         if shutil.which("ufw"):

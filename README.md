@@ -1,10 +1,10 @@
 # PhoneSpeaker v2.0 Studio
 
-Use your **phone as a wireless speaker for your PC**, and your **phone as a wireless microphone**, over a plain local network. Low-latency UDP audio, a native Android player built on Oboe, and a desktop app for **Windows 11** and **Linux** (PipeWire / PulseAudio).
+Use your **phone as a wireless speaker for your PC**, and your **phone as a wireless microphone**, over a plain local network. Low-latency UDP audio, a native Android player built on Oboe, a native iOS app built on AVAudioEngine & SwiftUI, and desktop studio apps for **Windows 11/10**, **Linux** (PipeWire / PulseAudio), and **macOS** (CoreAudio / BlackHole).
 
-It started as a fix for a laptop with a dead speaker and a dead headphone jack, and grew into a small studio: two-way settings sync, dual-speaker output, a virtual microphone, and live telemetry on both sides.
+It started as a fix for a laptop with a dead speaker and a dead headphone jack, and grew into a small studio: two-way settings sync, multi-device party mode, a virtual microphone, and live telemetry across all platforms.
 
-> **Not a Bluetooth speaker.** Android phones can't act as a normal Bluetooth audio sink. "Bluetooth" here means **Bluetooth tethering (PAN)**: the PC joins the phone over Bluetooth and the audio travels as ordinary IP packets. Wi-Fi, hotspot and USB tethering work the same way.
+> **Not a Bluetooth speaker.** Mobile phones can't act as a normal Bluetooth audio sink. "Bluetooth" here means **Bluetooth tethering (PAN)**: the PC joins the phone over Bluetooth and the audio travels as ordinary IP packets. Wi-Fi, hotspot and USB tethering work the same way.
 
 ---
 
@@ -14,6 +14,8 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
   - [1. Android Installation](#1-android-installation)
   - [2. Windows Installation](#2-windows-installation)
   - [3. Linux Distros Installation](#3-linux-distros-installation)
+  - [4. macOS Installation](#4-macos-installation)
+  - [5. iOS Installation (iPhone & iPad)](#5-ios-installation-iphone--ipad)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
@@ -190,6 +192,81 @@ python3 phonespeaker-pc/build_linux.py     # builds dist/PhoneSpeaker-v2 and the
 python3 phonespeaker-pc/src/main.py        # run directly from source
 ```
 
+---
+
+### 4. macOS Installation
+
+**Supported macOS Versions & Architectures:**
+- **macOS Sonoma (14.x)**, **macOS Ventura (13.x)**, **macOS Monterey (12.x)**, and newer.
+- Native support for both **Apple Silicon** (`arm64`: M1, M2, M3, M4) and **Intel** (`x86_64`).
+
+**Downloads:**
+- 📦 **One-Click Installer Bundle:** [**`PhoneSpeaker-v2-macOS-Installer.command`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-macOS-Installer.command)
+- 💿 **Standalone Disk Image (DMG):** [**`PhoneSpeaker-v2-macOS.dmg`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-macOS.dmg)
+
+#### Method A: One-Click `.command` Installer (Easiest)
+1. Download `PhoneSpeaker-v2-macOS-Installer.command`.
+2. Double-click the file in Finder (or right-click $\rightarrow$ **Open**).
+3. The installer checks/installs dependencies via Homebrew (`opus`, `portaudio`, `python-tk`, `blackhole-2ch`), creates `~/Applications/PhoneSpeaker v2.app`, adds the `phonespeaker` CLI tool, and launches the Studio app.
+
+*(Or run from Terminal)*:
+```bash
+chmod +x PhoneSpeaker-v2-macOS-Installer.command
+./PhoneSpeaker-v2-macOS-Installer.command
+```
+
+#### Method B: Drag-and-Drop Disk Image (`.dmg`)
+1. Download and open `PhoneSpeaker-v2-macOS.dmg`.
+2. Drag **PhoneSpeaker v2.app** into `/Applications`.
+3. Launch from Spotlight or Launchpad!
+
+#### Virtual Audio Routing on macOS (BlackHole):
+To capture desktop audio or route virtual microphone on macOS:
+```bash
+brew install --cask blackhole-2ch
+```
+- Set **BlackHole 2ch** (or create a Multi-Output Device in *Audio MIDI Setup*) as output to capture all Mac audio.
+- The PhoneSpeaker Studio app's **Virtual Device** tab provides 1-click shortcuts to open macOS Sound Settings and Audio MIDI Setup.
+
+#### Build macOS App from Source:
+```bash
+brew install opus portaudio python-tk
+python3 phonespeaker-pc/build_macos.py     # builds dist/PhoneSpeaker v2.app and PhoneSpeaker-v2-macOS.dmg
+python3 phonespeaker-pc/src/main.py        # run directly from source
+```
+
+---
+
+### 5. iOS Installation (iPhone & iPad)
+
+**Supported iOS Versions & Devices:**
+- **iOS 16.0** through **iOS 17 & 18+**.
+- Compatible with all **iPhone** and **iPad** models.
+
+**Features on iOS:**
+- Low-latency 48 kHz stereo speaker player powered by `AVAudioEngine`.
+- Wireless Microphone streaming (iPhone $\rightarrow$ PC) over UDP 5006.
+- Multi-Device Party Mode with built-in Camera QR scanner, member list, and **Extend This Party (Hotspot / Daisy-Chain Repeater)**.
+
+**Downloads & Sideloading:**
+- 📦 **IPA File:** [**`PhoneSpeaker-v2-iOS.ipa`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-iOS.ipa)
+- Install easily with **AltStore**, **SideStore**, **Sideloadly**, or **TrollStore**:
+  1. Download `PhoneSpeaker-v2-iOS.ipa`.
+  2. Open in **AltStore** or drag into **Sideloadly**.
+  3. Sign with your free Apple ID and tap Install.
+  4. Enable *Settings $\rightarrow$ Privacy & Security $\rightarrow$ Developer Mode* on your device.
+
+**Build iOS App from Source with XcodeGen:**
+```bash
+brew install xcodegen
+cd PhoneSpeakeriOS
+xcodegen generate
+open PhoneSpeaker.xcodeproj
+```
+Select your connected iPhone or iPad and press **Cmd + R** to run!
+
+---
+
 ### Tests (PC)
 
 ```bash
@@ -226,12 +303,12 @@ sudo firewall-cmd --add-port=5004/udp --add-port=5005/udp --add-port=5006/udp --
 - **PC → Phone speaker:** captures everything your PC plays and plays it on the phone.
 - **Phone → PC microphone:** streams the phone mic to the PC. Route it into Discord, Zoom, Teams or OBS through a virtual device.
 - **Full-duplex:** speaker and microphone at the same time.
-- **Dual-speaker sync:** play on the phone and on a PC output device together (`Both Phone + PC Together (Auto-Synced)`), with 100% automatic delay calibration and optional manual fine-tuning (0 to 150 ms) for drift-free, echo-free dual listening.
-- **PC-only routing:** mirror to a PC output device without sending to the phone (`PC Speaker Only (Mute Phone)`).
+- **🎉 Party Mode (Multi-Device & Hotspot Sharing):** Broadcast synchronized low-latency audio from 1 Host to multiple phones simultaneously over Wi-Fi, Phone Hotspot, PC Hotspot, or USB Tethering. Join instantly via Camera QR scanner or automatic beacon discovery.
+- **📡 Extend Party (Hotspot Repeater):** Joiners can daisy-chain and re-broadcast the party stream to nearby devices on secondary hotspot networks with hop-count TTL loop prevention.
 
 **Audio quality & Sound Modes**
 - **4 Sound Modes:**
-  - **Best Quality (QUALITY):** Opus 256 kbps, 10 ms frame, High 80 ms buffer (60 ms when Both Phone + PC Synced), Studio Complexity 10 & Constrained VBR, crystal-clear music and movies.
+  - **Best Quality (QUALITY):** Opus 256 kbps, 10 ms frame, High 80 ms buffer, Studio Complexity 10 & Constrained VBR, crystal-clear music and movies.
   - **Gaming Low-Delay (GAMING):** Opus 128 kbps, 5 ms frame, Low 20 ms buffer, ultra-low latency for competitive gaming and realtime video.
   - **Balanced Auto (BALANCED):** Opus 192 kbps, 5 ms frame, Auto Adaptive buffer (30 ms base), dynamically adjusts jitter buffer to match network conditions.
   - **Custom (CUSTOM):** Freely customize codec (Opus 10–320 kbps or Lossless PCM16 1536 kbps), frame size (5, 10, 20 ms), and buffer target (10–200 ms).
@@ -304,15 +381,13 @@ For the microphone: tap **Start mic stream to PC (port 5006)** on the phone, or 
 
 Speaker and mic have separate start and stop buttons on both the PC and the phone. Starting the mic from the PC also signals the phone to start its microphone server.
 
-### Output targets
+### 🎉 Party Mode & Multi-Device Broadcasting
 
-| Target | Behaviour |
+| Role | Behaviour |
 |---|---|
-| **Phone Speaker Only** | Audio goes to the phone only |
-| **Both Phone + PC Together (Auto-Synced)** | Phone and PC speaker play together; automatic calibration calculates phone-to-PC delay, or fine-tune with **PC Sync Delay** |
-| **PC Speaker Only (Mute Phone)** | Audio is mirrored to a PC output device and muted on the phone |
-
-If you capture a device and play back to the **same** device, you create an echo loop. Capture a virtual device and play to your real speakers or headphones instead.
+| **Party Host** | Broadcasts audio packets concurrently to all joined phones on the local network |
+| **Party Joiner** | Joins an active party via automatic discovery or instant Camera QR scanning |
+| **📡 Extend Party (Repeater)** | Re-broadcasts the incoming stream to devices on secondary hotspot networks with hop-count TTL loop prevention |
 
 ### Phone as a PC microphone
 
@@ -407,7 +482,7 @@ PCM16 uses 5 ms frames: 240 samples per channel, a 960-byte payload, 972 bytes o
 }
 ```
 
-`direction` is `PC_TO_PHONE`, `PHONE_TO_PC` or `FULL_DUPLEX`. `output_targets` is `PHONE_ONLY`, `PC_ONLY` or `BOTH_SYNCED`. `buffer_mode` is `LOW`, `MEDIUM`, `HIGH`, `AUTO` or `CUSTOM`. The authoritative definitions are in `phonespeaker-pc/src/protocol.py` and `PhoneSpeakerAndroid/app/src/main/cpp/protocol.h`.
+`direction` is `PC_TO_PHONE`, `PHONE_TO_PC` or `FULL_DUPLEX`. `buffer_mode` is `LOW`, `MEDIUM`, `HIGH`, `AUTO` or `CUSTOM`. The authoritative definitions are in `phonespeaker-pc/src/protocol.py` and `PhoneSpeakerAndroid/app/src/main/cpp/protocol.h`.
 
 ---
 
@@ -424,7 +499,7 @@ PCM16 uses 5 ms frames: 240 samples per channel, a 960-byte payload, 972 bytes o
 │   │   ├── main.py                  # entry point
 │   │   ├── ui.py                    # Tk interface, sync engine, tray, help
 │   │   ├── audio_capture.py         # WASAPI loopback / parec capture, resampling
-│   │   ├── audio_output.py          # PC playback, dual-speaker delay, phone-mic receiver
+│   │   ├── audio_output.py          # PC playback, phone-mic receiver
 │   │   ├── network.py               # UDP sender, control listener, adapter filtering
 │   │   ├── protocol.py              # header, ports, default config
 │   │   ├── opus_codec.py            # ctypes libopus encoder/decoder

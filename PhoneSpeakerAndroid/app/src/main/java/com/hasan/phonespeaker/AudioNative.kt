@@ -27,6 +27,9 @@ object AudioNative {
     external fun nativeSetVolumeGain(gain: Float)
     external fun nativeGetVolumeGain(): Float
     external fun nativeSetLowLatencyMode(lowLatency: Boolean)
+    external fun nativeSetPartyRelay(enabled: Boolean)
+    external fun nativeIsPartyRelay(): Boolean
+    external fun nativeSetPartyPeers(peers: Array<String>)
     external fun nativeGetAudioSessionId(): Int
     external fun nativeGetStats(): FloatArray?
     external fun nativeGetSenderIp(): String?

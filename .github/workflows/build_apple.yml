@@ -1,0 +1,92 @@
+name: Build Apple Deliverables (macOS DMG & iOS IPA)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-apple:
+    name: Build macOS DMG and iOS IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------
+      # 1. BUILD MACOS DMG (PhoneSpeaker-v2-macOS.dmg)
+      # ----------------------------------------------------
+      - name: Set up Python 3.11 for macOS
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install macOS Audio Dependencies via Homebrew
+        run: |
+          brew install opus portaudio python-tk xcodegen
+
+      - name: Build macOS Application Bundle & DMG
+        run: |
+          cd phonespeaker-pc
+          python3 build_macos.py
+
+      - name: Verify macOS DMG Artifact
+        run: |
+          ls -lh PhoneSpeaker-v2-macOS.dmg || ls -lh phonespeaker-pc/dist/
+
+      # ----------------------------------------------------
+      # 2. BUILD IOS APP & IPA (PhoneSpeaker-v2-iOS.ipa)
+      # ----------------------------------------------------
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Generate Xcode Project with XcodeGen
+        run: |
+          cd PhoneSpeakeriOS
+          xcodegen generate
+
+      - name: Build iOS Archive (Unsigned for Sideloading)
+        run: |
+          cd PhoneSpeakeriOS
+          xcodebuild archive \
+            -project PhoneSpeaker.xcodeproj \
+            -scheme PhoneSpeaker \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/PhoneSpeaker.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPA (Payload zip for AltStore / SideStore / Sideloadly)
+        run: |
+          cd PhoneSpeakeriOS
+          mkdir -p Payload
+          cp -R "build/PhoneSpeaker.xcarchive/Products/Applications/PhoneSpeaker.app" Payload/
+          zip -r ../PhoneSpeaker-v2-iOS.ipa Payload
+          cd ..
+          ls -lh PhoneSpeaker-v2-iOS.ipa
+
+      # ----------------------------------------------------
+      # 3. UPLOAD ARTIFACTS
+      # ----------------------------------------------------
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneSpeaker-v2-macOS-DMG
+          path: PhoneSpeaker-v2-macOS.dmg
+          if-no-files-found: warn
+
+      - name: Upload iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneSpeaker-v2-iOS-IPA
+          path: PhoneSpeaker-v2-iOS.ipa
+          if-no-files-found: warn
+

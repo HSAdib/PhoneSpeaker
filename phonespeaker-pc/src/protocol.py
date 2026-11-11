@@ -35,8 +35,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "direction": "PC_TO_PHONE",         # PC_TO_PHONE, PHONE_TO_PC, FULL_DUPLEX
     "pc_source": "SYSTEM_AUDIO",        # SYSTEM_AUDIO, MICROPHONE
     "phone_source": "MIC",              # MIC, APPS
-    "output_targets": "PHONE_ONLY",     # PHONE_ONLY, PC_ONLY, BOTH_SYNCED
-    "pc_sync_delay_ms": 25,             # 0 to 150 ms delay for PC speaker in BOTH_SYNCED
     "audio_profile": "BALANCED",        # QUALITY, GAMING, BALANCED, CUSTOM
     "codec": CODEC_OPUS,
     "opus_bitrate_kbps": 192,
@@ -50,6 +48,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "enable_audio_effects": False,
     "exclusive_audio_mode": "MIX_WITH_OTHERS",   # MIX_WITH_OTHERS, EXCLUSIVE, ALWAYS_PLAY
     "stop_on_headset_disconnect": False,
+    "party_mode": False,
+    "party_ips": [],
 }
 
 
@@ -96,11 +96,12 @@ def parse_header(data: bytes) -> Optional[Dict[str, int]]:
     """Unpack a 12-byte protocol header."""
     if len(data) < HEADER_SIZE:
         return None
-    seq, ts, codec, channels, sr_div100 = struct.unpack_from(_HEADER_FMT, data, 0)
+    seq, ts, raw_codec, channels, sr_div100 = struct.unpack_from(_HEADER_FMT, data, 0)
     return {
         "seq": seq,
         "timestamp_ms": ts,
-        "codec": codec,
+        "codec": raw_codec & 0x0F,
+        "hop_count": (raw_codec >> 4) & 0x07,
         "channels": channels,
         "sample_rate": sr_div100 * 100,
     }

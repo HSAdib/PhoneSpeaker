@@ -189,8 +189,8 @@ def list_output_devices() -> List[Dict]:
                     "alt_indices": norm_indices[key],
                 })
 
-            # Sort physical non-virtual speakers first so PC Playback Dev defaults to real speakers/headphones
-            devices.sort(key=lambda d: (d.get("is_virtual", False), not d.get("is_default", False), d.get("name", "")))
+            # Sort virtual devices (CABLE Input / Mic Sink) first for easy selection for Mic routing
+            devices.sort(key=lambda d: (not d.get("is_virtual", False), not d.get("is_default", False), d.get("name", "")))
         finally:
             pa.terminate()
     except Exception as exc:
@@ -273,279 +273,6 @@ def _open_pyaudio_output_with_fallback(
     return None, sample_rate, channels, False
 
 
-class PCDelayedAudioPlayer:
-    """
-    Plays captured audio to a physical PC output device with a drift-free configurable delay
-    (0 to 250 ms) to achieve exact acoustic synchronization with the Phone speaker.
-    """
-
-    def __init__(
-        self,
-        device_index: Optional[object] = None,
-        delay_ms: float = 35.0,
-        sample_rate: int = SAMPLE_RATE,
-        channels: int = CHANNELS,
-    ):
-        self._device_index = device_index
-        self._delay_ms = max(0.0, min(300.0, float(delay_ms)))
-        self._sample_rate = sample_rate
-        self._channels = channels
-        self._dev_rate = sample_rate
-        self._dev_channels = channels
-        self._use_float32: bool = False
-        self._resampler = None
-
-        self._pa: Optional["pyaudio.PyAudio"] = None
-        self._stream = None
-        self._pacat_proc: Optional[subprocess.Popen] = None
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-
-        self._buffer: collections.deque = collections.deque(maxlen=150)
-        self._data_event = threading.Event()
-        self._volume_gain: float = 1.0
-        self._muted: bool = False
-        self._lock = threading.Lock()
-
-    def set_delay_ms(self, delay_ms: float) -> None:
-        with self._lock:
-            self._delay_ms = max(0.0, min(300.0, float(delay_ms)))
-
-    def set_smooth_delay_ms(self, target_delay_ms: float) -> float:
-        with self._lock:
-            clamped = max(0.0, min(300.0, float(target_delay_ms)))
-            # Smooth EMA filter so auto-sync never causes abrupt jumps
-            if abs(clamped - self._delay_ms) > 25.0:
-                self._delay_ms = clamped
-            else:
-                self._delay_ms = 0.75 * self._delay_ms + 0.25 * clamped
-            return self._delay_ms
-
-    def get_delay_ms(self) -> float:
-        with self._lock:
-            return self._delay_ms
-
-    def set_gain_and_mute(self, gain: float, muted: bool) -> None:
-        with self._lock:
-            self._volume_gain = max(0.0, min(2.0, float(gain)))
-            self._muted = bool(muted)
-
-    def set_output_device(self, device_index: Optional[object]) -> None:
-        """Hot-swap the PC playback device without crashing."""
-        if self._device_index == device_index:
-            return
-        self._device_index = device_index
-        if self._running:
-            self.stop()
-            self.start()
-
-    def write_frame(self, pcm_bytes: bytes) -> None:
-        if not self._running or not pcm_bytes:
-            return
-        now = time.monotonic()
-        with self._lock:
-            self._buffer.append((now, pcm_bytes))
-        self._data_event.set()
-
-    def start(self) -> bool:
-        if self._running:
-            return True
-
-        if _IS_LINUX and isinstance(self._device_index, str) and self._device_index.startswith("pulse:"):
-            sink = self._device_index.split("pulse:", 1)[1]
-            if shutil.which("pacat"):
-                try:
-                    self._pacat_proc = subprocess.Popen(
-                        [
-                            "pacat", "--playback", f"--device={sink}",
-                            f"--rate={self._sample_rate}", "--format=s16le",
-                            f"--channels={self._channels}", "--latency-msec=12",
-                        ],
-                        stdin=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
-                    )
-                    self._dev_rate = self._sample_rate
-                    self._dev_channels = self._channels
-                    self._running = True
-                    self._thread = threading.Thread(target=self._run, name="PCDelayedAudioPlayer", daemon=True)
-                    self._thread.start()
-                    return True
-                except Exception as exc:
-                    logger.error("Failed to start pacat player: %s", exc)
-                    return False
-
-        if not _PYAUDIO_AVAILABLE:
-            return False
-
-        try:
-            self._pa = pyaudio.PyAudio()
-            dev_idx = self._device_index if isinstance(self._device_index, int) else None
-            frames_buf = max(480, int(self._sample_rate * 0.020))
-            stream, rate, ch, use_f32 = _open_pyaudio_output_with_fallback(
-                self._pa, dev_idx, self._sample_rate, self._channels, frames_buf
-            )
-            if stream is None:
-                logger.error("PCDelayedAudioPlayer could not open device_index=%s", dev_idx)
-                self.stop()
-                return False
-
-            self._stream = stream
-            self._dev_rate = rate
-            self._dev_channels = ch
-            self._use_float32 = use_f32
-
-            if _SOXR_AVAILABLE and self._dev_rate != self._sample_rate:
-                try:
-                    self._resampler = soxr.ResampleStream(
-                        self._sample_rate, self._dev_rate, self._dev_channels, dtype="float32", quality="HQ"
-                    )
-                except Exception:
-                    self._resampler = None
-            else:
-                self._resampler = None
-
-            self._running = True
-            self._thread = threading.Thread(target=self._run, name="PCDelayedAudioPlayer", daemon=True)
-            self._thread.start()
-            logger.info(
-                "PCDelayedAudioPlayer started (device=%s, rate=%d, ch=%d, f32=%s, delay=%.1fms)",
-                dev_idx, self._dev_rate, self._dev_channels, self._use_float32, self._delay_ms
-            )
-            return True
-        except Exception as exc:
-            logger.error("Failed to start PCDelayedAudioPlayer: %s", exc)
-            self.stop()
-            return False
-
-    def stop(self) -> None:
-        self._running = False
-        self._data_event.set()
-        if self._thread and self._thread is not threading.current_thread():
-            self._thread.join(timeout=1.0)
-            self._thread = None
-        if self._pacat_proc:
-            try:
-                self._pacat_proc.terminate()
-                self._pacat_proc.wait(timeout=1.0)
-            except Exception:
-                pass
-            self._pacat_proc = None
-        if self._stream:
-            try:
-                self._stream.stop_stream()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
-        if self._pa:
-            try:
-                self._pa.terminate()
-            except Exception:
-                pass
-            self._pa = None
-        self._resampler = None
-        with self._lock:
-            self._buffer.clear()
-
-    def _format_for_device(self, pcm_bytes: bytes, muted: bool, gain: float) -> bytes:
-        if muted:
-            n_frames = len(pcm_bytes) // 4
-            out_frames = int(round(n_frames * self._dev_rate / self._sample_rate))
-            return b"\x00" * (out_frames * self._dev_channels * 2)
-
-        arr = np.frombuffer(pcm_bytes, dtype="<i2")
-        if len(arr) == 0:
-            return pcm_bytes
-
-        if abs(gain - 1.0) > 0.01:
-            arr = np.clip(arr.astype(np.float32) * gain, -32768, 32767).astype("<i2")
-
-        if self._dev_rate == self._sample_rate and self._dev_channels == 2:
-            return arr.tobytes()
-
-        pcm_2d = arr.reshape(-1, 2)
-        if self._dev_channels == 1:
-            pcm_2d = pcm_2d.mean(axis=1, keepdims=True).astype("<i2")
-
-        if self._dev_rate != self._sample_rate:
-            if _SOXR_AVAILABLE:
-                if self._resampler is not None:
-                    try:
-                        resampled = self._resampler.resample_chunk(pcm_2d.astype(np.float32), last=False)
-                        return np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
-                    except Exception:
-                        pass
-                resampled = soxr.resample(
-                    pcm_2d.astype(np.float32), self._sample_rate, self._dev_rate, quality="HQ"
-                )
-                return np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
-            in_len = len(pcm_2d)
-            out_len = int(round(in_len * self._dev_rate / self._sample_rate))
-            x_old = np.arange(in_len, dtype=np.float32) / max(1, in_len)
-            x_new = np.arange(out_len, dtype=np.float32) / max(1, out_len)
-            resampled = np.zeros((out_len, self._dev_channels), dtype=np.float32)
-            for c in range(self._dev_channels):
-                resampled[:, c] = np.interp(x_new, x_old, pcm_2d[:, c])
-            return np.clip(resampled, -32768, 32767).astype("<i2").tobytes()
-
-        return pcm_2d.tobytes()
-
-    def _run(self) -> None:
-        while self._running:
-            now = time.monotonic()
-            ready_frames = []
-            with self._lock:
-                delay_ms = self._delay_ms
-                target_delay_sec = delay_ms / 1000.0
-                muted = self._muted
-                gain = self._volume_gain
-
-                if delay_ms <= 2.0:
-                    # PC_ONLY mode: play frames immediately without delay
-                    while self._buffer and len(ready_frames) < 4:
-                        ready_frames.append(self._buffer.popleft()[1])
-                else:
-                    # BOTH_SYNCED mode: drift-locked delay line
-                    # If oldest frame exceeds target_delay + 35ms, drop with crossfade to prevent clicks
-                    if len(self._buffer) > 2 and (now - self._buffer[0][0]) > (target_delay_sec + 0.035):
-                        dropped = self._buffer.popleft()[1]
-                        next_t, next_pcm = self._buffer[0]
-                        try:
-                            fade_len = min(32, len(dropped) // 4, len(next_pcm) // 4)
-                            if fade_len > 0:
-                                arr_prev = np.frombuffer(dropped, dtype="<i2")
-                                arr_next = np.frombuffer(next_pcm, dtype="<i2").copy()
-                                alpha = np.linspace(0.0, 1.0, fade_len * 2, dtype=np.float32)
-                                tail = arr_prev[-fade_len * 2:].astype(np.float32)
-                                head = arr_next[:fade_len * 2].astype(np.float32)
-                                arr_next[:fade_len * 2] = np.rint(tail * (1.0 - alpha) + head * alpha).astype("<i2")
-                                self._buffer[0] = (next_t, arr_next.tobytes())
-                        except Exception:
-                            pass
-
-                    # Pop up to 4 ready frames (up to 20ms) into a single contiguous write
-                    while self._buffer and len(ready_frames) < 4 and (now - self._buffer[0][0]) >= target_delay_sec:
-                        ready_frames.append(self._buffer.popleft()[1])
-
-            if ready_frames:
-                combined_pcm = b"".join(ready_frames)
-                out_bytes = self._format_for_device(combined_pcm, muted, gain)
-                try:
-                    if self._use_float32:
-                        out_write = (np.frombuffer(out_bytes, dtype="<i2").astype(np.float32) / 32768.0).tobytes()
-                    else:
-                        out_write = out_bytes
-
-                    if self._pacat_proc and self._pacat_proc.stdin:
-                        self._pacat_proc.stdin.write(out_bytes)
-                    elif self._stream:
-                        self._stream.write(out_write)
-                except Exception as exc:
-                    logger.debug("PCDelayedAudioPlayer write error: %s", exc)
-            else:
-                self._data_event.wait(timeout=0.003)
-                self._data_event.clear()
-
-
 class PhoneAudioReceiver:
     """
     Listens on UDP port 5006 for incoming audio from the Phone (Mic),
@@ -558,10 +285,12 @@ class PhoneAudioReceiver:
         port: int = PHONE_AUDIO_PORT,
         output_device_index: Optional[object] = None,
         on_stats: Optional[Callable[[int], None]] = None,
+        on_packet: Optional[Callable[[bytes, Tuple[str, int]], None]] = None,
     ):
         self._port = port
         self._device_index = output_device_index
         self._on_stats = on_stats
+        self._on_packet = on_packet
 
         self._sock: Optional[socket.socket] = None
         self._pa: Optional["pyaudio.PyAudio"] = None
@@ -574,7 +303,7 @@ class PhoneAudioReceiver:
         self._opus_decoder: Optional[OpusDecoder] = None
 
         self._running = False
-        self._muted = True
+        self._muted = False
         self._manual_mute = False
         self._rx_thread: Optional[threading.Thread] = None
         self._play_thread: Optional[threading.Thread] = None
@@ -676,7 +405,10 @@ class PhoneAudioReceiver:
         if self._running:
             with self._lock:
                 self._close_audio_sink()
-                self._open_audio_sink()
+                if not self._open_audio_sink():
+                    logger.warning("Failed to open output device %s, falling back to default", device_index)
+                    self._device_index = None
+                    self._open_audio_sink()
 
     def start(self) -> bool:
         if self._running:
@@ -750,7 +482,12 @@ class PhoneAudioReceiver:
         """Dedicated non-blocking UDP socket receiver so zero mic packets are dropped."""
         while self._running:
             try:
-                data, _ = self._sock.recvfrom(2048)
+                data, addr = self._sock.recvfrom(2048)
+                if self._on_packet:
+                    try:
+                        self._on_packet(data, addr)
+                    except Exception:
+                        pass
                 header = parse_header(data)
                 if header:
                     payload = data[12:]

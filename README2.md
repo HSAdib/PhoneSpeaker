@@ -1,12 +1,13 @@
 # PhoneSpeaker v2.0 Studio
 
-PhoneSpeaker turns an Android phone into a wireless speaker for a Windows or Linux PC, and can also send the phone's microphone audio to the PC. Audio travels over a local IP network using UDP; supported connections include Wi-Fi, a phone hotspot, USB tethering, and Bluetooth tethering (PAN). It is not a Bluetooth audio sink.
+PhoneSpeaker turns an Android or iOS phone into a wireless speaker for a Windows, Linux, or macOS PC, and can also send the phone's microphone audio to the PC. Audio travels over a local IP network using UDP; supported connections include Wi-Fi, a phone hotspot, USB tethering, and Bluetooth tethering (PAN). It is not a Bluetooth audio sink.
 
 ## What it does
 
 - Streams PC audio to an Android phone, phone microphone audio to a PC, or both at once (Full-Duplex).
-- **4 Sound Modes:** Best Quality (Opus 256 kbps, 10 ms, 80/60 ms buffer), Gaming Low-Delay (Opus 128 kbps, 5 ms, 20 ms buffer), Balanced Auto (Opus 192 kbps, 5 ms, Auto buffer), and Custom (Opus 10–320 kbps or Lossless PCM16 1536 kbps, 5–20 ms frame, 10–200 ms buffer).
-- Plays audio on the phone and a PC output device together with 100% automatic dual-speaker sync (`Both Phone + PC Together (Auto-Synced)`), plus manual fine-tuning (0 to 150 ms) to eliminate echo.
+- **🎉 Party Mode (Multi-Device & Hotspot Sharing):** Broadcast synchronized low-latency audio from 1 Host to multiple phones simultaneously over Wi-Fi, Phone Hotspot, PC Hotspot, or USB Tethering. Join instantly via Camera QR scanner or automatic beacon discovery.
+- **📡 Extend Party (Hotspot Repeater):** Joiners can daisy-chain and re-broadcast the party stream to nearby devices on secondary hotspot networks with hop-count TTL loop prevention.
+- **4 Sound Modes:** Best Quality (Opus 256 kbps, 10 ms, 80 ms buffer), Gaming Low-Delay (Opus 128 kbps, 5 ms, 20 ms buffer), Balanced Auto (Opus 192 kbps, 5 ms, Auto buffer), and Custom (Opus 10–320 kbps or Lossless PCM16 1536 kbps, 5–20 ms frame, 10–200 ms buffer).
 - Relative volume scaling (0% to 200% with soft-knee limiting, where phone hardware volume = 100% baseline).
 - Supports lossless PCM16 (1536 kbps, 48 kHz stereo) and Opus up to 320 kbps (10, 24, 32, 64, 96, 128, 160, 192, 256, 320 kbps) with Studio Complexity 10 & Constrained VBR, configurable frame size (5, 10, 20 ms), and phone-side jitter buffering.
 - Two-way settings synchronization between PC and phone, and live telemetry on both sides.
@@ -17,8 +18,10 @@ PhoneSpeaker turns an Android phone into a wireless speaker for a Windows or Lin
 Get the latest installers from the [GitHub Releases page](https://github.com/HSAdib/PhoneSpeaker/releases):
 
 - **Android:** `PhoneSpeaker v2.apk` (Android 8.0 / API 26 or newer).
+- **iOS:** `PhoneSpeaker-v2-iOS.ipa` (iOS 16.0 or newer; sideload with AltStore / Sideloadly).
 - **Windows:** `PhoneSpeaker v2.exe` (Windows 10 or 11, 64-bit; standalone).
-- **Linux:** `PhoneSpeaker-v2-Linux-Installer.run`, or use the install script below. Ubuntu, Linux Mint, Arch, Debian, and Fedora are listed as supported; PipeWire and PulseAudio are supported.
+- **Linux:** `PhoneSpeaker-v2-Linux-Installer.run`, or use the install script below. Ubuntu, Linux Mint, Arch, Debian, and Fedora are supported; PipeWire and PulseAudio are supported.
+- **macOS:** `PhoneSpeaker-v2-macOS-Installer.command` or `PhoneSpeaker-v2-macOS.dmg` (macOS 12.0+ Apple Silicon & Intel).
 
 For a quick Linux installation, run:
 
@@ -63,6 +66,6 @@ For a low-latency starting point, try PCM16 with 5 ms frames on USB tethering or
 - For crackling, increase the buffer, try a more stable connection, and exempt PhoneSpeaker from Android battery optimization.
 - Avoid capturing and playing back through the same device, which can create an echo loop.
 - PhoneSpeaker has **no authentication or encryption**. Use it only on trusted networks; devices that can reach the ports may send audio or settings.
-- macOS is not supported. Do not run v1 and v2 phone apps simultaneously because they share ports.
+- Cross-platform support across Windows, Linux, macOS, Android, and iOS. Do not run v1 and v2 phone apps simultaneously because they share ports.
 
 For full feature details, the wire protocol, project layout, build instructions, and extended troubleshooting, see the [main README](README.md).

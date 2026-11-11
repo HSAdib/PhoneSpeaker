@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 APP_NAME = "PhoneSpeaker"
 if sys.platform.startswith("win"):
     _BASE_DIR = Path(os.environ.get("APPDATA", os.path.expanduser("~")))
+elif sys.platform == "darwin":
+    _BASE_DIR = Path.home() / "Library" / "Application Support"
 else:
     _BASE_DIR = Path(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")))
 
@@ -37,14 +39,14 @@ _DEFAULTS: Dict[str, Any] = {
     "muted": False,
     "mic_enabled": True,
     "direction": "PC_TO_PHONE",
-    "output_targets": "PHONE_ONLY",
-    "pc_sync_delay_ms": 25,
     "adapter_name": "",
     "minimize_to_tray": True,
     "audio_output_engine": "OBOE_LOW_LATENCY",
     "enable_audio_effects": False,
     "exclusive_audio_mode": "MIX_WITH_OTHERS",
     "stop_on_headset_disconnect": False,
+    "party_mode": False,
+    "party_ips": [],
     "config_rev": 1,
 }
 

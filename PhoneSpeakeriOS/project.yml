@@ -1,0 +1,46 @@
+name: PhoneSpeaker
+options:
+  bundleIdPrefix: com.hasan
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    PRODUCT_NAME: PhoneSpeaker
+    PRODUCT_BUNDLE_IDENTIFIER: com.hasan.phonespeaker.v2
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CURRENT_PROJECT_VERSION: 2
+    MARKETING_VERSION: "2.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_BITCODE: NO
+
+targets:
+  PhoneSpeaker:
+    type: application
+    platform: iOS
+    sources:
+      - path: PhoneSpeaker
+    info:
+      path: PhoneSpeaker/Info.plist
+      properties:
+        CFBundleDisplayName: PhoneSpeaker v2
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
+        NSMicrophoneUsageDescription: "PhoneSpeaker streams your iPhone microphone to your PC over local Wi-Fi or Hotspot (UDP 5006)."
+        NSCameraUsageDescription: "PhoneSpeaker uses the camera to scan Party Host QR codes for instant connection."
+        NSLocalNetworkUsageDescription: "PhoneSpeaker uses your local network (UDP 5004, 5005, 5006) for ultra-low-latency audio streaming and device discovery."
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    frameworks:
+      - framework: AVFoundation.framework
+      - framework: AudioToolbox.framework
+      - framework: Network.framework
+      - framework: CoreImage.framework
+      - framework: SwiftUI.framework
+      - framework: UIKit.framework

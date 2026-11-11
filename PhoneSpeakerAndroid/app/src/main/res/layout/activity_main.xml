@@ -103,6 +103,20 @@
                 android:textSize="12sp" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/tabBtnParty"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="PARTY"
+                android:textColor="#888888"
+                app:strokeColor="#444444"
+                app:strokeWidth="1dp"
+                android:fontFamily="monospace"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/tabBtnSettings"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="0dp"
@@ -511,49 +525,6 @@
                     android:textSize="11sp" />
             </LinearLayout>
 
-            <!-- Output Routing Selector -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="WHERE TO PLAY SOUND (SYNCED WITH PC):"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace" />
-
-            <RadioGroup
-                android:id="@+id/rgOutputTargets"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp">
-
-                <RadioButton
-                    android:id="@+id/rbTargetPhone"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="Phone Speaker Only"
-                    android:textColor="#FFFFFF"
-                    android:fontFamily="monospace" />
-
-                <RadioButton
-                    android:id="@+id/rbTargetBoth"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Both Phone + PC Together (Auto-Synced)"
-                    android:textColor="#FFFFFF"
-                    android:fontFamily="monospace" />
-
-                <RadioButton
-                    android:id="@+id/rbTargetPc"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="PC Speaker Only (Mute Phone)"
-                    android:textColor="#FFFFFF"
-                    android:fontFamily="monospace" />
-            </RadioGroup>
-
             <!-- Live Latency & Delay Graph -->
             <com.hasan.phonespeaker.LatencyGraphView
                 android:id="@+id/latencyGraph"
@@ -724,7 +695,662 @@
         </LinearLayout>
 
         <!-- ============================================================= -->
-        <!-- TAB 3: SETTINGS CONTAINER -->
+        <!-- TAB 3: PARTY MODE CONTAINER -->
+        <!-- ============================================================= -->
+        <LinearLayout
+            android:id="@+id/layoutPartyTab"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- ========================================================= -->
+            <!-- 1. INITIAL SCREEN: 2-BUTTON CHOOSER (HOST vs JOIN)        -->
+            <!-- ========================================================= -->
+            <LinearLayout
+                android:id="@+id/layoutPartyChooser"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp"
+                android:padding="8dp"
+                android:background="#0A0E14">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🎉 PARTY MODE — MULTI-DEVICE WIRELESS AUDIO"
+                    android:textColor="#38B6FF"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:gravity="center" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Independent from Normal 1-to-1 Mode.&#10;Choose how you want to use Party Mode:"
+                    android:textColor="#888888"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPartyChooseHost"
+                    android:layout_width="match_parent"
+                    android:layout_height="72dp"
+                    android:layout_marginTop="16dp"
+                    android:text="[ 👑 HOST A PARTY ]&#10;Create Host IP &amp; QR Code to Broadcast Sound"
+                    android:textColor="#00FF00"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    app:backgroundTint="#002200"
+                    app:strokeColor="#00FF00"
+                    app:strokeWidth="2dp"
+                    app:cornerRadius="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPartyChooseJoin"
+                    android:layout_width="match_parent"
+                    android:layout_height="72dp"
+                    android:layout_marginTop="12dp"
+                    android:text="[ 🎧 JOIN A PARTY ]&#10;Scan for Hosts or Scan QR Code to Listen"
+                    android:textColor="#00EEEE"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    app:backgroundTint="#001822"
+                    app:strokeColor="#00EEEE"
+                    app:strokeWidth="2dp"
+                    app:cornerRadius="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="💡 Tip: Normal Mode (PLAYER tab) streams directly PC ↔ Phone.&#10;Party Mode connects multiple devices concurrently."
+                    android:textColor="#666666"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center" />
+            </LinearLayout>
+
+            <!-- ========================================================= -->
+            <!-- 2. HOST SECTION (Shown ONLY when user taps HOST)          -->
+            <!-- ========================================================= -->
+            <LinearLayout
+                android:id="@+id/layoutPartyHostSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginTop="6dp">
+
+                <!-- Host Top Back Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnPartyHostBack"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="[ ← BACK ]"
+                        android:textColor="#00FF00"
+                        app:strokeColor="#00FF00"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:text="👑 HOST PARTY MODE"
+                        android:textColor="#00FF00"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Host IP Reveal Banner -->
+                <TextView
+                    android:id="@+id/tvPartyHostIpBanner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="#101820"
+                    android:padding="10dp"
+                    android:text="👑 HOST IP: Loading..."
+                    android:textColor="#00FF00"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Other phones or PCs connect to your Hotspot / Wi-Fi and join using this IP or by scanning the QR code below:"
+                    android:textColor="#AAAAAA"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+
+                <!-- QR Code View -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <ImageView
+                        android:id="@+id/ivPartyHostQr"
+                        android:layout_width="170dp"
+                        android:layout_height="170dp"
+                        android:background="#FFFFFF"
+                        android:padding="6dp"
+                        android:scaleType="fitCenter"
+                        android:contentDescription="Party Host QR Code" />
+
+                    <TextView
+                        android:id="@+id/tvPartyHostQrHint"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Scan with another phone • Tap QR to copy link"
+                        android:textColor="#38B6FF"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshHostIpQr"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginTop="6dp"
+                        android:text="↻ REFRESH HOST IP &amp; QR"
+                        android:textColor="#00EEEE"
+                        app:strokeColor="#00EEEE"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Host Action Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTogglePartyHost"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:text="[ 👑 START PARTY BROADCAST (HOST) ]"
+                    android:textColor="#00FF00"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    app:backgroundTint="#002B00"
+                    app:strokeColor="#00FF00"
+                    app:strokeWidth="1dp"
+                    app:cornerRadius="0dp" />
+
+                <!-- Connected Party Members -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="CONNECTED JOINERS / PEERS:"
+                    android:textColor="#888888"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/tvPartyHostPeersList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:background="#111111"
+                    android:padding="8dp"
+                    android:text="Waiting for other devices to join..."
+                    android:textColor="#CCCCCC"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <!-- Manual Peer Add Bar -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="6dp">
+
+                    <EditText
+                        android:id="@+id/etPartyPeerIp"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:background="#1A1A1A"
+                        android:hint="Add Peer IP (e.g. 192.168.43.105)"
+                        android:textColorHint="#555555"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:inputType="textUri"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAddPartyPeer"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="44dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="ADD IP"
+                        android:textColor="#00FF00"
+                        app:strokeColor="#00FF00"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearPartyPeers"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="44dp"
+                        android:text="CLEAR"
+                        android:textColor="#FF4444"
+                        app:strokeColor="#FF4444"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Hotspot Setup Tip -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="#0A1118"
+                    android:padding="8dp"
+                    android:text="💡 HOST TIP:&#10;• Mobile Hotspot: Turn on Hotspot on this phone -> other phones &amp; PC connect to it -> tap Start Party Broadcast!&#10;• The host plays sound through its speaker AND forwards to all joiners in real-time sync!"
+                    android:textColor="#38B6FF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+
+            <!-- ========================================================= -->
+            <!-- 3. JOIN SECTION (Shown ONLY when user taps JOIN)          -->
+            <!-- ========================================================= -->
+            <LinearLayout
+                android:id="@+id/layoutPartyJoinSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginTop="6dp">
+
+                <!-- Join Top Back Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnPartyJoinBack"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="[ ← BACK ]"
+                        android:textColor="#00EEEE"
+                        app:strokeColor="#00EEEE"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:text="🎧 JOIN PARTY MODE"
+                        android:textColor="#00EEEE"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Discovered Hosts Section -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="📡 SCANNING FOR PARTY HOSTS:"
+                        android:textColor="#888888"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRescanPartyHosts"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:text="↻ SCAN"
+                        android:textColor="#00EEEE"
+                        app:strokeColor="#00EEEE"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="10sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvPartyDiscoveredHosts"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:background="#101820"
+                    android:padding="8dp"
+                    android:text="Scanning Wi-Fi / Hotspot for Party Hosts... (Tap host to connect)"
+                    android:textColor="#00EEEE"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+
+                <!-- Dynamic Clickable Host Buttons Container -->
+                <LinearLayout
+                    android:id="@+id/layoutDiscoveredHostsList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="4dp" />
+
+                <!-- Manual Address or QR Scan Section -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="HOST ADDRESS (SCAN OR ENTER):"
+                    android:textColor="#888888"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="4dp">
+
+                    <EditText
+                        android:id="@+id/etJoinPartyHostIp"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:background="#1A1A1A"
+                        android:hint="Host IP (e.g. 192.168.43.1)"
+                        android:textColorHint="#555555"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:inputType="textUri"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp" />
+
+                    <EditText
+                        android:id="@+id/etJoinPartyPort"
+                        android:layout_width="55dp"
+                        android:layout_height="44dp"
+                        android:layout_marginEnd="4dp"
+                        android:background="#1A1A1A"
+                        android:text="5004"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:inputType="number" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnScanPartyQrCamera"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="44dp"
+                        android:layout_marginEnd="4dp"
+                        android:text="📷 SCAN QR"
+                        android:textColor="#00FF00"
+                        app:strokeColor="#00FF00"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnScanPartyQr"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="44dp"
+                        android:text="📋 PASTE"
+                        android:textColor="#38B6FF"
+                        app:strokeColor="#38B6FF"
+                        app:strokeWidth="1dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Join Action Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTogglePartyJoin"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="10dp"
+                    android:text="[ 🎧 JOIN PARTY STREAM ]"
+                    android:textColor="#00FF00"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    app:backgroundTint="#002B00"
+                    app:strokeColor="#00FF00"
+                    app:strokeWidth="1dp"
+                    app:cornerRadius="0dp" />
+
+                <!-- Party Join Status Banner -->
+                <TextView
+                    android:id="@+id/tvPartyJoinStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="#111111"
+                    android:padding="8dp"
+                    android:text="PARTY JOINER: Standby"
+                    android:textColor="#00FF00"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <!-- ===================================================== -->
+                <!-- 4. POST-JOIN EXTEND PARTY CARD                        -->
+                <!-- (Visible ONLY after successfully joining a host)      -->
+                <!-- ===================================================== -->
+                <LinearLayout
+                    android:id="@+id/layoutPartyExtendCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:background="#0D1722"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="📡 EXTEND THIS PARTY (HOTSPOT REPEATER)"
+                        android:textColor="#00EEEE"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:fontFamily="monospace"
+                        android:text="You have joined the party! Turn on your Mobile Hotspot and tap Extend below to generate your own Extended Host IP &amp; QR code so other people can connect to you:"
+                        android:textColor="#AABBCC"
+                        android:textSize="11sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnToggleExtendParty"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="8dp"
+                        android:text="[ 📡 EXTEND PARTY (GENERATE HOTSPOT QR &amp; IP) ]"
+                        android:textColor="#00EEEE"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        app:backgroundTint="#002222"
+                        app:strokeColor="#00EEEE"
+                        app:strokeWidth="1dp"
+                        app:cornerRadius="4dp" />
+
+                    <!-- Collapsible Extended Host IP + QR Code + Connected Downstream Peers -->
+                    <LinearLayout
+                        android:id="@+id/layoutExtendDetails"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tvExtendedHostIpBanner"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="#102418"
+                            android:fontFamily="monospace"
+                            android:padding="10dp"
+                            android:text="📡 EXTENDED HOST IP: Detecting Hotspot / Wi-Fi IP..."
+                            android:textColor="#00FF00"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical">
+
+                            <ImageView
+                                android:id="@+id/ivExtendedHostQr"
+                                android:layout_width="165dp"
+                                android:layout_height="165dp"
+                                android:background="#FFFFFF"
+                                android:contentDescription="Extended Host QR Code"
+                                android:padding="6dp"
+                                android:scaleType="fitCenter" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:fontFamily="monospace"
+                                android:text="Friends scan this QR to join YOUR extended party • Tap to copy"
+                                android:textColor="#00EEEE"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRefreshExtendIp"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="40dp"
+                            android:layout_marginTop="8dp"
+                            android:text="↻ REFRESH HOTSPOT IP &amp; QR CODE"
+                            android:textColor="#00EEEE"
+                            app:strokeColor="#00EEEE"
+                            app:strokeWidth="1dp"
+                            android:fontFamily="monospace"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/tvExtendedPeersList"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="#081018"
+                            android:fontFamily="monospace"
+                            android:padding="8dp"
+                            android:text="Extended Party Peers: Waiting for friends to scan your QR..."
+                            android:textColor="#CCCCCC"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Hidden legacy elements for complete code compatibility -->
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchPartyMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:checked="false"
+                android:visibility="gone" />
+            <RadioGroup
+                android:id="@+id/rgPartyRole"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone">
+                <RadioButton
+                    android:id="@+id/rbPartyHost"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+                <RadioButton
+                    android:id="@+id/rbPartyJoin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+                <RadioButton
+                    android:id="@+id/rbPartyHostRelay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+            </RadioGroup>
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchExtendParty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:checked="false"
+                android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTogglePartyStream"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+            <TextView
+                android:id="@+id/tvPartyStatusBanner"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+            <TextView
+                android:id="@+id/tvPartyPeersList"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- ============================================================= -->
+        <!-- TAB 4: SETTINGS CONTAINER -->
         <!-- ============================================================= -->
         <LinearLayout
             android:id="@+id/layoutSettingsTab"

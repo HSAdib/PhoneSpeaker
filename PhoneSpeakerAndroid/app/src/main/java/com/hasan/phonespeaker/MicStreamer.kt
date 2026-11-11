@@ -161,7 +161,7 @@ class MicStreamer {
     }
 
     private fun getSubnetBroadcasts(): List<InetAddress> {
-        val results = mutableListOf<InetAddress>()
+        val results = mutableSetOf<InetAddress>()
         try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
             while (interfaces.hasMoreElements()) {
@@ -169,17 +169,23 @@ class MicStreamer {
                 if (iface.isLoopback || !iface.isUp || isCellularOrDummyInterface(iface.name)) continue
                 for (ia in iface.interfaceAddresses) {
                     val addr = ia.address
-                    val bcast = ia.broadcast
-                    if (addr is Inet4Address && bcast != null) {
-                        results.add(bcast)
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        if (ia.broadcast != null) {
+                            results.add(ia.broadcast)
+                        }
+                        val host = addr.hostAddress ?: continue
+                        val parts = host.split(".")
+                        if (parts.size == 4) {
+                            try {
+                                results.add(InetAddress.getByName("${parts[0]}.${parts[1]}.${parts[2]}.255"))
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
             }
         } catch (_: Exception) {}
-        if (results.isEmpty()) {
-            try { results.add(InetAddress.getByName("255.255.255.255")) } catch (_: Exception) {}
-        }
-        return results
+        try { results.add(InetAddress.getByName("255.255.255.255")) } catch (_: Exception) {}
+        return results.toList()
     }
 
     private fun readFullShorts(rec: AudioRecord, buf: ShortArray, count: Int): Boolean {
@@ -213,13 +219,12 @@ class MicStreamer {
         while (isRunning.get()) {
             val rec = audioRecord ?: break
 
-            if (dynamicTargetIp == "255.255.255.255" || dynamicTargetIp.isBlank()) {
-                val discovered = AudioStreamService.activeControlChannel?.getActivePcIp()
-                    ?: AudioNative.nativeGetSenderIp()
-                if (!discovered.isNullOrBlank()) {
-                    dynamicTargetIp = discovered
-                    Log.i(TAG, "MicStreamer locked onto discovered PC IP: $discovered")
-                }
+            val discovered = AudioStreamService.activeControlChannel?.getActivePcIp()
+                ?: ControlChannel.lastKnownPcIp
+                ?: AudioNative.nativeGetSenderIp()
+            if (!discovered.isNullOrBlank() && discovered != "255.255.255.255" && dynamicTargetIp != discovered) {
+                dynamicTargetIp = discovered
+                Log.i(TAG, "MicStreamer locked onto discovered PC IP: $discovered")
             }
 
             if (readFullShorts(rec, inShorts, inShorts.size)) {
@@ -255,7 +260,8 @@ class MicStreamer {
                             cachedIp = currentIp
                         }
                         socket.send(DatagramPacket(packetData, packetData.size, cachedInet, targetPort))
-                    } else {
+                    }
+                    if (AudioStreamService.activeControlChannel?.getActivePcIp() == null || currentIp == "255.255.255.255" || currentIp.isBlank()) {
                         for (bcast in getSubnetBroadcasts()) {
                             socket.send(DatagramPacket(packetData, packetData.size, bcast, targetPort))
                         }

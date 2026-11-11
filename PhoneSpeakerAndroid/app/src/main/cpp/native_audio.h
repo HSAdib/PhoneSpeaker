@@ -5,6 +5,9 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <vector>
+#include <string>
+#include <mutex>
 #include <netinet/in.h>
 
 class NativeAudioEngine : public oboe::AudioStreamDataCallback,
@@ -26,6 +29,9 @@ public:
     float getVolumeGain() const;
     void setLowLatencyMode(bool lowLatency);
     bool isLowLatencyMode() const;
+    void setPartyRelayEnabled(bool enabled);
+    bool isPartyRelayEnabled() const;
+    void setPartyPeers(const std::vector<std::string>& peers);
     int32_t getAudioSessionId() const;
 
     JitterStats getStats();
@@ -48,6 +54,9 @@ private:
     std::atomic<bool> mMuted{false};
     std::atomic<float> mVolumeGain{1.0f};
     std::atomic<bool> mLowLatencyMode{true};
+    std::atomic<bool> mPartyRelayEnabled{false};
+    std::mutex mPartyPeersMutex;
+    std::vector<struct sockaddr_in> mPartyPeerAddrs;
     std::atomic<int> mSocketFd{-1};
     std::mutex mSenderIpMutex;
     std::string mLastSenderIp;

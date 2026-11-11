@@ -67,7 +67,6 @@ class AudioStreamService : Service() {
     private var audioOutputEngine = "OBOE_LOW_LATENCY"
     private var enableAudioEffects = false
     private var userMuted = false
-    private var outputTargets = "PHONE_ONLY"
     private var pausedByHeadset = false
     private var pausedByFocus = false
     private var savedVolumeGain = 1.0f
@@ -76,7 +75,7 @@ class AudioStreamService : Service() {
     private val serviceHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     private fun applyEffectiveMuteAndGain() {
-        val effectiveMute = userMuted || (outputTargets == "PC_ONLY") || pausedByHeadset || pausedByFocus
+        val effectiveMute = userMuted || pausedByHeadset || pausedByFocus
         AudioNative.nativeSetMuted(effectiveMute)
     }
 
@@ -316,15 +315,17 @@ class AudioStreamService : Service() {
                 controlPort = 5005,
                 onConfigSyncReceived = { configJson -> handleConfigSync(configJson) },
                 onMicControlReceived = { wantActive ->
-                    if (wantActive && !isMicStreaming) {
-                        val hasPerm = androidx.core.content.ContextCompat.checkSelfPermission(
-                            this, android.Manifest.permission.RECORD_AUDIO
-                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                        if (hasPerm) {
-                            startMicServer(activeControlChannel?.getActivePcIp(), true)
+                    serviceHandler.post {
+                        if (wantActive && !isMicStreaming) {
+                            val hasPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                                this@AudioStreamService, android.Manifest.permission.RECORD_AUDIO
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            if (hasPerm) {
+                                startMicServer(activeControlChannel?.getActivePcIp() ?: ControlChannel.lastKnownPcIp, true)
+                            }
+                        } else if (!wantActive && isMicStreaming) {
+                            stopMicServer()
                         }
-                    } else if (!wantActive && isMicStreaming) {
-                        stopMicServer()
                     }
                 }
             )
@@ -358,9 +359,6 @@ class AudioStreamService : Service() {
                     pausedByHeadset = false
                     pausedByFocus = false
                 }
-            }
-            if (json.has("output_targets")) {
-                outputTargets = json.optString("output_targets", "PHONE_ONLY")
             }
             applyEffectiveMuteAndGain()
             if (json.has("exclusive_audio_mode")) {

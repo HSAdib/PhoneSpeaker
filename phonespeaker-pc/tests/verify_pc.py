@@ -318,8 +318,6 @@ def test_protocol_v2_and_sync() -> None:
         assert PHONE_AUDIO_PORT == 5006, f"Expected port 5006, got {PHONE_AUDIO_PORT}"
         assert DEFAULT_CONFIG["type"] == "CONFIG_SYNC"
         assert "direction" in DEFAULT_CONFIG
-        assert "output_targets" in DEFAULT_CONFIG
-        assert "pc_sync_delay_ms" in DEFAULT_CONFIG
         assert DEFAULT_CONFIG["audio_profile"] == "BALANCED", f"Expected BALANCED profile, got {DEFAULT_CONFIG.get('audio_profile')}"
         assert DEFAULT_CONFIG["opus_bitrate_kbps"] == 192, f"Expected 192 kbps, got {DEFAULT_CONFIG.get('opus_bitrate_kbps')}"
 
@@ -345,6 +343,13 @@ def test_protocol_v2_and_sync() -> None:
         assert parsed["codec"] == CODEC_OPUS
         assert parsed["channels"] == 2
         assert parsed["sample_rate"] == 48000
+        assert parsed.get("hop_count", 0) == 0
+
+        relayed_hdr = bytearray(build_header(99, 2000, CODEC_OPUS))
+        relayed_hdr[8] = (CODEC_OPUS & 0x0F) | (2 << 4)
+        parsed_relayed = parse_header(bytes(relayed_hdr))
+        assert parsed_relayed is not None
+        assert parsed_relayed["codec"] == CODEC_OPUS and parsed_relayed["hop_count"] == 2
 
         dec = OpusDecoder(48000, 2)
         assert dec.available, "OpusDecoder should be available via opus.dll"
@@ -419,6 +424,48 @@ def test_phone_mic_receiver_no_drops() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 11: UDPSender Party Mode Fan-Out to Multiple Receivers
+# ---------------------------------------------------------------------------
+def test_udp_sender_party_fanout() -> None:
+    name = "UDPSender multi-target Party Mode fan-out"
+    try:
+        from network import UDPSender, AudioQueue
+        from protocol import CODEC_PCM16, SILENCE_PCM_5MS
+
+        rx1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rx1.bind(("127.0.0.1", 0))
+        rx1.settimeout(0.8)
+        port1 = rx1.getsockname()[1]
+
+        rx2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rx2.bind(("127.0.0.2", 0))
+        rx2.settimeout(0.8)
+        port2 = rx2.getsockname()[1]
+
+        q = AudioQueue()
+        sender = UDPSender(audio_queue=q)
+        sender.configure(target_ip="127.0.0.1", target_port=port1, codec=CODEC_PCM16, frame_ms=5)
+        sender.set_party_mode(True)
+        sender.add_party_target("127.0.0.2", port2)
+        sender.start()
+
+        # Push one frame
+        q.put(SILENCE_PCM_5MS)
+
+        data1, _ = rx1.recvfrom(2048)
+        data2, _ = rx2.recvfrom(2048)
+
+        sender.stop()
+        rx1.close()
+        rx2.close()
+
+        ok = (len(data1) == 972 and len(data2) == 972 and data1 == data2)
+        check(name, ok, f"both targets received identical 972-byte packet (len1={len(data1)}, len2={len(data2)})")
+    except Exception as exc:
+        check(name, False, str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -438,6 +485,7 @@ def main() -> None:
     test_protocol_v2_and_sync()
     test_win_volume()
     test_phone_mic_receiver_no_drops()
+    test_udp_sender_party_fanout()
 
     print()
     print("=" * 60)

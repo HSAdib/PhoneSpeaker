@@ -12,6 +12,8 @@ static bool gSavedAutoMode = true;
 static bool gSavedMuted = false;
 static float gSavedVolumeGain = 1.0f;
 static bool gSavedLowLatency = true;
+static bool gSavedPartyRelay = false;
+static std::vector<std::string> gSavedPartyPeers;
 
 extern "C" {
 
@@ -26,6 +28,8 @@ Java_com_hasan_phonespeaker_AudioNative_nativeStart(JNIEnv* /*env*/, jobject /*t
     gAudioEngine->setMuted(gSavedMuted);
     gAudioEngine->setVolumeGain(gSavedVolumeGain);
     gAudioEngine->setLowLatencyMode(gSavedLowLatency);
+    gAudioEngine->setPartyRelayEnabled(gSavedPartyRelay);
+    gAudioEngine->setPartyPeers(gSavedPartyPeers);
     return gAudioEngine->start(port) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -117,6 +121,45 @@ Java_com_hasan_phonespeaker_AudioNative_nativeSetLowLatencyMode(JNIEnv* /*env*/,
     gSavedLowLatency = (lowLatency == JNI_TRUE);
     if (gAudioEngine) {
         gAudioEngine->setLowLatencyMode(gSavedLowLatency);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_hasan_phonespeaker_AudioNative_nativeSetPartyRelay(JNIEnv* /*env*/, jobject /*thiz*/, jboolean enabled) {
+    std::lock_guard<std::mutex> lock(gEngineMutex);
+    gSavedPartyRelay = (enabled == JNI_TRUE);
+    if (gAudioEngine) {
+        gAudioEngine->setPartyRelayEnabled(gSavedPartyRelay);
+    }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hasan_phonespeaker_AudioNative_nativeIsPartyRelay(JNIEnv* /*env*/, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lock(gEngineMutex);
+    return gSavedPartyRelay ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_hasan_phonespeaker_AudioNative_nativeSetPartyPeers(JNIEnv* env, jobject /*thiz*/, jobjectArray peers) {
+    if (!peers) return;
+    int len = env->GetArrayLength(peers);
+    std::vector<std::string> peerList;
+    peerList.reserve(len);
+    for (int i = 0; i < len; ++i) {
+        jstring str = (jstring)env->GetObjectArrayElement(peers, i);
+        if (str) {
+            const char* chars = env->GetStringUTFChars(str, nullptr);
+            if (chars) {
+                peerList.emplace_back(chars);
+                env->ReleaseStringUTFChars(str, chars);
+            }
+            env->DeleteLocalRef(str);
+        }
+    }
+    std::lock_guard<std::mutex> lock(gEngineMutex);
+    gSavedPartyPeers = peerList;
+    if (gAudioEngine) {
+        gAudioEngine->setPartyPeers(gSavedPartyPeers);
     }
 }
 

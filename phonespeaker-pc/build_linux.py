@@ -61,7 +61,7 @@ def main() -> None:
     run([str(python), "-m", "pip", "install", "--upgrade", "pip", "-q"])
 
     # Install Linux Python requirements (PyAudioWPatch is Windows-only; on Linux use numpy, psutil, Pillow, pystray, pyinstaller)
-    linux_pkgs = ["numpy>=1.26.0", "psutil>=5.9.8", "Pillow>=10.3.0", "pystray>=0.19.5", "pyinstaller>=6.6.0"]
+    linux_pkgs = ["numpy>=1.26.0", "psutil>=5.9.8", "Pillow>=10.3.0", "pystray>=0.19.5", "pyinstaller>=6.6.0", "qrcode>=7.4.2"]
     run([str(pip), "install"] + linux_pkgs)
     # Try optional pyaudio & soxr (non-fatal if portaudio headers aren't installed; parec/pacat work natively!)
     subprocess.run([str(pip), "install", "soxr", "pyaudio"], check=False)

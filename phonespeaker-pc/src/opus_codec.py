@@ -34,9 +34,15 @@ OPUS_AUTO = -1000
 
 
 def _locate_dll() -> Optional[str]:
-    """Find bundled or system libopus on Windows (opus.dll) and Linux (libopus.so.0)."""
+    """Find bundled or system libopus on Windows (opus.dll), macOS (libopus.dylib), and Linux (libopus.so.0)."""
     is_win = sys.platform.startswith("win")
-    lib_names = ["opus.dll"] if is_win else ["libopus.so.0", "libopus.so"]
+    is_mac = (sys.platform == "darwin")
+    if is_win:
+        lib_names = ["opus.dll"]
+    elif is_mac:
+        lib_names = ["libopus.0.dylib", "libopus.dylib"]
+    else:
+        lib_names = ["libopus.so.0", "libopus.so"]
     candidates = []
 
     meipass = getattr(sys, "_MEIPASS", None)
@@ -58,13 +64,22 @@ def _locate_dll() -> Optional[str]:
         candidates.append(Path.cwd() / name)
 
     if not is_win:
-        for sys_path in [
-            "/usr/lib/libopus.so.0",
-            "/usr/lib64/libopus.so.0",
-            "/usr/lib/x86_64-linux-gnu/libopus.so.0",
-            "/usr/lib/aarch64-linux-gnu/libopus.so.0",
-        ]:
-            candidates.append(Path(sys_path))
+        if is_mac:
+            for mac_path in [
+                "/opt/homebrew/lib/libopus.0.dylib",
+                "/opt/homebrew/lib/libopus.dylib",
+                "/usr/local/lib/libopus.0.dylib",
+                "/usr/local/lib/libopus.dylib",
+            ]:
+                candidates.append(Path(mac_path))
+        else:
+            for sys_path in [
+                "/usr/lib/libopus.so.0",
+                "/usr/lib64/libopus.so.0",
+                "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+                "/usr/lib/aarch64-linux-gnu/libopus.so.0",
+            ]:
+                candidates.append(Path(sys_path))
 
     for p in candidates:
         if p.exists():

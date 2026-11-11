@@ -19,6 +19,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _IS_LINUX = sys.platform.startswith("linux")
+_IS_MAC = (sys.platform == "darwin")
 
 # Target output format
 TARGET_RATE = 48000
@@ -288,6 +289,31 @@ def list_loopback_devices() -> List[dict]:
                             devices.append(entry)
                 except Exception:
                     continue
+
+            if _IS_MAC and not devices:
+                virtual_keywords = ("blackhole", "soundflower", "loopback", "virtual", "phonespeaker", "aggregate", "multi-output")
+                all_inputs = []
+                for i in range(pa.get_device_count()):
+                    try:
+                        info = pa.get_device_info_by_index(i)
+                        in_channels = int(info.get("maxInputChannels", 0))
+                        if in_channels > 0:
+                            dev_name = info.get("name", f"Device {i}")
+                            entry = {
+                                "index": i,
+                                "name": dev_name,
+                                "sample_rate": int(info.get("defaultSampleRate", TARGET_RATE)),
+                                "channels": max(1, in_channels),
+                                "is_default": False,
+                            }
+                            if any(k in dev_name.lower() for k in virtual_keywords):
+                                devices.append(entry)
+                            else:
+                                all_inputs.append(entry)
+                    except Exception:
+                        continue
+                if not devices:
+                    devices = all_inputs
         finally:
             pa.terminate()
     except Exception as exc:

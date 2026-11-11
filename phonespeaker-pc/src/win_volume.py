@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 _IS_WIN = sys.platform.startswith("win")
 _IS_LINUX = sys.platform.startswith("linux")
+_IS_MAC = (sys.platform == "darwin")
 
 
 class GUID(Structure):
@@ -175,6 +176,20 @@ def get_system_volume_and_mute() -> Optional[Tuple[float, bool]]:
         except Exception:
             return None
 
+    if _IS_MAC and shutil.which("osascript"):
+        try:
+            res = subprocess.run(
+                ["osascript", "-e", "get {output volume of (get volume settings), output muted of (get volume settings)}"],
+                capture_output=True, text=True, timeout=1
+            )
+            if res.returncode == 0 and "," in res.stdout:
+                parts = [p.strip() for p in res.stdout.strip().split(",")]
+                vol = float(parts[0]) / 100.0 if parts[0].isdigit() else 1.0
+                muted = (parts[1].lower() == "true")
+                return min(2.0, max(0.0, vol)), muted
+        except Exception:
+            return None
+
     return None
 
 
@@ -209,6 +224,18 @@ def set_system_volume_and_mute(volume_scalar: float, muted: Optional[bool] = Non
             subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"], timeout=1)
             if muted is not None:
                 subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if muted else "0"], timeout=1)
+            return True
+        except Exception:
+            return False
+
+    if _IS_MAC and shutil.which("osascript"):
+        try:
+            pct = int(round(max(0.0, min(1.0, float(volume_scalar))) * 100))
+            script = f"set volume output volume {pct}"
+            if muted is not None:
+                mute_str = "true" if muted else "false"
+                script += f" output muted {mute_str}"
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=1)
             return True
         except Exception:
             return False

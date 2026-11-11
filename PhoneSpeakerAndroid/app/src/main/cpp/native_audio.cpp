@@ -184,6 +184,8 @@ void NativeAudioEngine::socketReceiverLoop() {
 
         AudioHeader header;
         std::memcpy(&header, buffer, sizeof(AudioHeader));
+        uint8_t hopCount = (header.codec >> 4) & 0x07;
+        header.codec &= 0x0F;
 
         // Validation rules:
         if (header.codec != CODEC_PCM16 && header.codec != CODEC_OPUS) {
@@ -223,6 +225,19 @@ void NativeAudioEngine::socketReceiverLoop() {
         }
 
         mJitterBuffer.pushPacket(packet);
+
+        // Forward to downstream peers if Hosting or Extending Party (up to 4 hops)
+        if (mPartyRelayEnabled.load() && hopCount < 4 && fd >= 0) {
+            uint8_t origByte8 = buffer[8];
+            buffer[8] = (header.codec & 0x0F) | (((hopCount + 1) & 0x07) << 4);
+            std::lock_guard<std::mutex> lock(mPartyPeersMutex);
+            for (const auto& peerAddr : mPartyPeerAddrs) {
+                if (peerAddr.sin_addr.s_addr != clientaddr.sin_addr.s_addr) {
+                    sendto(fd, buffer, n, MSG_DONTWAIT, (const struct sockaddr*)&peerAddr, sizeof(peerAddr));
+                }
+            }
+            buffer[8] = origByte8;
+        }
     }
 }
 
@@ -320,6 +335,27 @@ void NativeAudioEngine::setLowLatencyMode(bool lowLatency) {
 
 bool NativeAudioEngine::isLowLatencyMode() const {
     return mLowLatencyMode.load();
+}
+
+void NativeAudioEngine::setPartyRelayEnabled(bool enabled) {
+    mPartyRelayEnabled.store(enabled);
+}
+
+bool NativeAudioEngine::isPartyRelayEnabled() const {
+    return mPartyRelayEnabled.load();
+}
+
+void NativeAudioEngine::setPartyPeers(const std::vector<std::string>& peers) {
+    std::lock_guard<std::mutex> lock(mPartyPeersMutex);
+    mPartyPeerAddrs.clear();
+    for (const auto& ip : peers) {
+        struct sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(mAudioPort);
+        if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) == 1) {
+            mPartyPeerAddrs.push_back(addr);
+        }
+    }
 }
 
 int32_t NativeAudioEngine::getAudioSessionId() const {
