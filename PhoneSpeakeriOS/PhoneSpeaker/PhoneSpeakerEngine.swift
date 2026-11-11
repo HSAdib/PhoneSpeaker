@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import UIKit
 import AVFoundation
 import Network
 import Combine
@@ -82,7 +83,13 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     // MARK: - Published UI States
     @Published public var isAudioPlaying: Bool = false
     @Published public var isMicStreaming: Bool = false
-    @Published public var connectedServerIp: String = ""
+    @Published public var connectedServerIp: String = "" {
+        didSet {
+            stateLock.lock()
+            atomicConnectedServerIp = connectedServerIp
+            stateLock.unlock()
+        }
+    }
     @Published public var connectedServerName: String = "PC"
     @Published public var latencyMs: Double = 0.0
     @Published public var packetLossPercent: Double = 0.0
@@ -93,23 +100,38 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     @Published public var volume: Float = 1.0 {
         didSet {
             let clamped = min(2.0, max(0.0, volume))
-            playerNode.volume = isMuted ? 0.0 : min(1.0, clamped)
+            stateLock.lock()
+            atomicVolume = clamped
+            stateLock.unlock()
         }
     }
     @Published public var isMuted: Bool = false {
         didSet {
-            playerNode.volume = isMuted ? 0.0 : min(1.0, volume)
+            stateLock.lock()
+            atomicMuted = isMuted
+            stateLock.unlock()
+            playerNode.volume = isMuted ? 0.0 : 1.0
         }
     }
-    @Published public var bufferTargetMs: Int = 20
+    @Published public var bufferTargetMs: Int = 20 {
+        didSet {
+            stateLock.lock()
+            atomicBufferTargetMs = bufferTargetMs
+            stateLock.unlock()
+        }
+    }
     @Published public var bufferMode: String = "AUTO" // AUTO or FIXED
     @Published public var soundMode: String = "BALANCED" // BALANCED, GAMING, QUALITY, CUSTOM
 
     // Party Mode States
     @Published public var partyScreen: String = "CHOOSER" // CHOOSER, HOST, JOIN
-    @Published public var isPartyHost: Bool = false
+    @Published public var isPartyHost: Bool = false {
+        didSet { syncRelayFlags() }
+    }
     @Published public var isPartyJoined: Bool = false
-    @Published public var isPartyExtending: Bool = false
+    @Published public var isPartyExtending: Bool = false {
+        didSet { syncRelayFlags() }
+    }
     @Published public var partyMembers: [PartyMember] = []
     @Published public var partyPeerIps: Set<String> = []
     @Published public var discoveredPartyHosts: [DiscoveredHost] = []
@@ -118,9 +140,18 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
 
     // MARK: - Synchronization & Locks
     private let peersLock = NSLock()
+    private let stateLock = NSLock()
     private let atomicUnderruns = AtomicInt()
     private var lastSyncId: Int = Int(Date().timeIntervalSince1970 * 1000) & 0x7FFFFFFF
     private var suppressSync: Bool = false
+
+    // Thread-safe snapshots read by background audio/network threads
+    private var atomicVolume: Float = 1.0
+    private var atomicMuted: Bool = false
+    private var atomicBufferTargetMs: Int = 20
+    private var atomicRelayActive: Bool = false
+    private var atomicConnectedServerIp: String = ""
+    private var isMicRunning: Bool = false
 
     // MARK: - Audio Engine Components
     private let audioEngine = AVAudioEngine()
@@ -140,7 +171,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     private var isRunningAudio: Bool = false
     private var isRunningControl: Bool = false
 
-    // Stats & Pacing
+    // Stats & Pacing (guarded by stateLock)
     private var packetsReceived: UInt64 = 0
     private var packetsLost: UInt64 = 0
     private var lastSequence: UInt32 = 0
@@ -180,6 +211,20 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         stopAll()
     }
 
+    private func syncRelayFlags() {
+        let active = isPartyHost || isPartyExtending
+        stateLock.lock()
+        atomicRelayActive = active
+        stateLock.unlock()
+    }
+
+    private func updateServerIp(_ ip: String) {
+        connectedServerIp = ip
+        stateLock.lock()
+        atomicConnectedServerIp = ip
+        stateLock.unlock()
+    }
+
     // MARK: - Audio Session & Engine Setup
     private func setupAudioSession() {
         let session = AVAudioSession.sharedInstance()
@@ -196,7 +241,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     private func setupAudioEngine() {
         audioEngine.attach(playerNode)
         audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: audioFormat)
-        playerNode.volume = isMuted ? 0.0 : min(1.0, volume)
+        playerNode.volume = isMuted ? 0.0 : 1.0
         do {
             try audioEngine.start()
         } catch {
@@ -205,7 +250,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     }
 
     // MARK: - Start / Stop Speaker Player (UDP 5004)
-    public func startSpeakerPlayer(manualHost: String = "") {
+    public func startSpeakerPlayer(port: Int = 5004, manualHost: String = "") {
         guard !isAudioPlaying else { return }
         setupAudioSession()
         if !audioEngine.isRunning {
@@ -214,16 +259,16 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         playerNode.play()
 
         if !manualHost.isEmpty {
-            connectedServerIp = manualHost
+            updateServerIp(manualHost)
         }
 
         isRunningAudio = true
-        startAudioRxSocket()
+        startAudioRxSocket(port: port)
         startStatsTimer()
 
         DispatchQueue.main.async {
             self.isAudioPlaying = true
-            self.statusMessage = "Speaker active (UDP 5004)"
+            self.statusMessage = "Speaker active (UDP \(port))"
         }
     }
 
@@ -243,7 +288,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     }
 
     // MARK: - Exact 12-Byte Little-Endian Audio Receiver (UDP 5004)
-    private func startAudioRxSocket() {
+    private func startAudioRxSocket(port: Int = 5004) {
         audioRxSocket = socket(AF_INET, SOCK_DGRAM, 0)
         guard audioRxSocket >= 0 else { return }
 
@@ -254,9 +299,12 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         var rcvBuf: Int32 = 1048576 // 1MB buffer
         setsockopt(audioRxSocket, SOL_SOCKET, SO_RCVBUF, &rcvBuf, socklen_t(MemoryLayout<Int32>.size))
 
+        var tv = timeval(tv_sec: 0, tv_usec: 500_000)
+        setsockopt(audioRxSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(5004).bigEndian
+        addr.sin_port = in_port_t(port).bigEndian
         addr.sin_addr.s_addr = in_addr_t(0) // INADDR_ANY
 
         let bindResult = withUnsafePointer(to: &addr) { ptr in
@@ -266,7 +314,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         }
 
         if bindResult < 0 {
-            print("Failed to bind UDP port 5004")
+            print("Failed to bind UDP port \(port)")
             return
         }
 
@@ -277,10 +325,24 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         rxThread?.start()
     }
 
+    @inline(__always)
+    private static func softKneeLimit(_ x: Float) -> Float {
+        if x > 0.85 {
+            return 0.85 + 0.15 * tanhf((x - 0.85) / 0.15)
+        } else if x < -0.85 {
+            return -0.85 + 0.15 * tanhf((x + 0.85) / 0.15)
+        }
+        return x
+    }
+
     private func runAudioRxLoop() {
         var buffer = [UInt8](repeating: 0, count: 4096)
         var senderAddr = sockaddr_in()
         var senderLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+        var localSeqLast: UInt32 = 0
+        var localLastSyncReq: TimeInterval = 0
+        var cachedMyIps: [String] = PhoneSpeakerEngine.getLocalIpv4Addresses()
+        var lastIpRefresh: TimeInterval = Date().timeIntervalSince1970
 
         while isRunningAudio && audioRxSocket >= 0 {
             let bytesRead = withUnsafeMutablePointer(to: &senderAddr) { addrPtr in
@@ -313,15 +375,21 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                 continue
             }
 
-            // Packet Loss Tracking
-            if lastSequence > 0 && seq > lastSequence + 1 {
-                packetsLost += UInt64(seq - lastSequence - 1)
+            // Snapshot thread-safe state
+            stateLock.lock()
+            if localSeqLast > 0 && seq > localSeqLast + 1 {
+                packetsLost += UInt64(seq - localSeqLast - 1)
             }
-            lastSequence = seq
+            localSeqLast = seq
             packetsReceived += 1
+            let relayActive = atomicRelayActive
+            let curVolume = atomicVolume
+            let curMuted = atomicMuted
+            let curTargetMs = atomicBufferTargetMs
+            stateLock.unlock()
 
             // Multi-Hop Party Relay (Daisy-Chain Forwarding) with thread-safe snapshot
-            if (isPartyHost || isPartyExtending) && hopCount < 4 {
+            if relayActive && hopCount < 4 {
                 var relayPkt = Array(buffer[0..<bytesRead])
                 let nextHop = hopCount + 1
                 relayPkt[8] = (codec & 0x0F) | (((nextHop) & 0x07) << 4)
@@ -330,8 +398,13 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                 let peersSnapshot = Array(partyPeerIps)
                 peersLock.unlock()
 
+                let nowTs = Date().timeIntervalSince1970
+                if nowTs - lastIpRefresh > 2.0 {
+                    cachedMyIps = PhoneSpeakerEngine.getLocalIpv4Addresses()
+                    lastIpRefresh = nowTs
+                }
                 for peer in peersSnapshot {
-                    if peer != senderIp && peer != localIpAddress {
+                    if peer != senderIp && !cachedMyIps.contains(peer) {
                         sendAudioPacket(relayPkt, toIp: peer, port: 5004)
                     }
                 }
@@ -340,8 +413,8 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
             // Codec Fallback: If sender sends Opus (codec == 1), auto-request Lossless PCM16
             if codec == 1 {
                 let now = Date().timeIntervalSince1970
-                if now - lastCodecSyncReqTime > 2.0 {
-                    lastCodecSyncReqTime = now
+                if now - localLastSyncReq > 2.0 {
+                    localLastSyncReq = now
                     DispatchQueue.main.async { [weak self] in
                         self?.sendConfigSync(forcePcm: true, targetIp: senderIp)
                     }
@@ -356,7 +429,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
             guard frameCount > 0 else { continue }
 
             // Cap queued buffers to max(3, bufferTargetMs / 5) so latency never drifts!
-            let maxQueued = max(3, bufferTargetMs / 5)
+            let maxQueued = max(3, curTargetMs / 5)
             if audioBufferQueueCount.value >= maxQueued {
                 atomicUnderruns.increment()
                 continue
@@ -366,15 +439,15 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                 pcmBuf.frameLength = frameCount
                 let left = pcmBuf.floatChannelData![0]
                 let right = pcmBuf.floatChannelData![1]
-                let gain: Float = isMuted ? 0.0 : min(2.0, max(0.0, volume))
+                let gain: Float = curMuted ? 0.0 : min(2.0, max(0.0, curVolume))
 
-                // Alignment-safe byte reading directly from buffer
+                // Alignment-safe byte reading directly from buffer + soft-knee limiter
                 if channels == 1 {
                     for i in 0..<Int(frameCount) {
                         let off = 12 + i * 2
                         let u16 = UInt16(buffer[off]) | (UInt16(buffer[off + 1]) << 8)
                         let s16 = Int16(bitPattern: u16)
-                        let sample = (Float(s16) / 32767.0) * gain
+                        let sample = PhoneSpeakerEngine.softKneeLimit((Float(s16) / 32767.0) * gain)
                         left[i] = sample
                         right[i] = sample
                     }
@@ -383,8 +456,8 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                         let off = 12 + i * 4
                         let uL = UInt16(buffer[off]) | (UInt16(buffer[off + 1]) << 8)
                         let uR = UInt16(buffer[off + 2]) | (UInt16(buffer[off + 3]) << 8)
-                        left[i] = (Float(Int16(bitPattern: uL)) / 32767.0) * gain
-                        right[i] = (Float(Int16(bitPattern: uR)) / 32767.0) * gain
+                        left[i] = PhoneSpeakerEngine.softKneeLimit((Float(Int16(bitPattern: uL)) / 32767.0) * gain)
+                        right[i] = PhoneSpeakerEngine.softKneeLimit((Float(Int16(bitPattern: uR)) / 32767.0) * gain)
                     }
                 }
 
@@ -425,26 +498,90 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
 
     public func startMicStreaming() {
         guard !isMicStreaming else { return }
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            guard granted else {
+                DispatchQueue.main.async {
+                    self?.statusMessage = "Microphone permission denied in iOS Settings"
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                self?._beginMicStreamInternal()
+            }
+        }
+    }
+
+    private func _beginMicStreamInternal() {
+        guard !isMicStreaming else { return }
+
+        setupAudioSession()
+        if !audioEngine.isRunning {
+            try? audioEngine.start()
+        }
+
+        let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
+        let inputFormat = inputNode.inputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0 && inputFormat.channelCount > 0 else {
+            DispatchQueue.main.async {
+                self.statusMessage = "Microphone input format unavailable"
+            }
+            return
+        }
 
         micTxSocket = socket(AF_INET, SOCK_DGRAM, 0)
         var broadcast: Int32 = 1
         setsockopt(micTxSocket, SOL_SOCKET, SO_BROADCAST, &broadcast, socklen_t(MemoryLayout<Int32>.size))
 
-        let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.inputFormat(forBus: 0)
+        let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false)!
+        let converter = (inputFormat.sampleRate != 48000 || inputFormat.channelCount != 2)
+            ? AVAudioConverter(from: inputFormat, to: targetFormat)
+            : nil
 
         var seq: UInt32 = 0
         var sampleAccumulator: [Int16] = []
-        let lock = NSLock()
+        let tapLock = NSLock()
+
+        stateLock.lock()
+        isMicRunning = true
+        stateLock.unlock()
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-            guard let self = self, self.isMicStreaming, self.micTxSocket >= 0 else { return }
+            guard let self = self, self.micTxSocket >= 0 else { return }
 
-            guard let channelData = buffer.floatChannelData else { return }
-            let inFrames = Int(buffer.frameLength)
-            let inChannels = Int(inputFormat.channelCount)
+            self.stateLock.lock()
+            let micActive = self.isMicRunning
+            let curServerIp = self.atomicConnectedServerIp
+            self.stateLock.unlock()
+            guard micActive else { return }
 
-            lock.lock()
+            var workBuffer: AVAudioPCMBuffer = buffer
+            if let conv = converter {
+                let ratio = 48000.0 / inputFormat.sampleRate
+                let cap = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 64)
+                if let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: cap) {
+                    var provided = false
+                    var err: NSError?
+                    conv.convert(to: converted, error: &err) { _, outStatus in
+                        if provided {
+                            outStatus.pointee = .noDataNow
+                            return nil
+                        }
+                        provided = true
+                        outStatus.pointee = .haveData
+                        return buffer
+                    }
+                    if err == nil && converted.frameLength > 0 {
+                        workBuffer = converted
+                    }
+                }
+            }
+
+            guard let channelData = workBuffer.floatChannelData else { return }
+            let inFrames = Int(workBuffer.frameLength)
+            let inChannels = Int(workBuffer.format.channelCount)
+
+            tapLock.lock()
             // Convert to 48kHz Stereo Int16
             for i in 0..<inFrames {
                 let sampleL = max(-1.0, min(1.0, channelData[0][i]))
@@ -483,20 +620,22 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                 packet[10] = UInt8(480 & 0xFF)
                 packet[11] = UInt8((480 >> 8) & 0xFF)
 
-                // bytes[12..971]: 960 bytes of Int16 LE payload
-                slice.withUnsafeBytes { raw in
-                    _ = raw.copyBytes(to: UnsafeMutableRawBufferPointer(start: &packet[12], count: 960))
+                // bytes[12..971]: explicit Little-Endian Int16 payload packing
+                for j in 0..<480 {
+                    let u = UInt16(bitPattern: slice[j])
+                    packet[12 + j * 2] = UInt8(u & 0xFF)
+                    packet[12 + j * 2 + 1] = UInt8((u >> 8) & 0xFF)
                 }
 
                 seq &+= 1
+                self.stateLock.lock()
                 self.micPacketsSent += 1
+                self.stateLock.unlock()
 
-                // Dynamic target IP lookup on every packet
-                let curServerIp = self.connectedServerIp
                 if !curServerIp.isEmpty && curServerIp != "255.255.255.255" {
                     self.sendMicPacket(packet, toIp: curServerIp)
                 } else {
-                    // Send to local subnet broadcast (<subnet>.255:5006) and 255.255.255.255:5006
+                    // Fallback to local subnet broadcast (<subnet>.255:5006) & 255.255.255.255:5006
                     let localIp = self.localIpAddress
                     let parts = localIp.split(separator: ".")
                     if parts.count == 4 {
@@ -506,7 +645,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                     self.sendMicPacket(packet, toIp: "255.255.255.255")
                 }
             }
-            lock.unlock()
+            tapLock.unlock()
         }
 
         DispatchQueue.main.async {
@@ -530,7 +669,10 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     }
 
     public func stopMicStreaming() {
-        guard isMicStreaming else { return }
+        stateLock.lock()
+        isMicRunning = false
+        stateLock.unlock()
+
         audioEngine.inputNode.removeTap(onBus: 0)
         closeSocket(&micTxSocket)
         DispatchQueue.main.async {
@@ -548,6 +690,9 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         setsockopt(controlSocket, SOL_SOCKET, SO_REUSEADDR, &opt, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(controlSocket, SOL_SOCKET, SO_REUSEPORT, &opt, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(controlSocket, SOL_SOCKET, SO_BROADCAST, &opt, socklen_t(MemoryLayout<Int32>.size))
+
+        var tv = timeval(tv_sec: 0, tv_usec: 500_000)
+        setsockopt(controlSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
@@ -591,7 +736,8 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
             inet_ntop(AF_INET, &senderAddr.sin_addr, &senderIpStr, socklen_t(INET_ADDRSTRLEN))
             let senderIp = String(cString: senderIpStr)
 
-            if senderIp == localIpAddress { continue }
+            let myIps = PhoneSpeakerEngine.getLocalIpv4Addresses()
+            if myIps.contains(senderIp) { continue }
 
             let data = Data(buffer[0..<bytesRead])
             guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -606,7 +752,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     private func handleControlMessage(type: String, payload: [String: Any], senderIp: String) {
         switch type {
         case "PC_ANNOUNCE":
-            connectedServerIp = senderIp
+            updateServerIp(senderIp)
             if let pcName = payload["pc_name"] as? String {
                 connectedServerName = pcName
             }
@@ -661,7 +807,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         case "MIC_CONTROL":
             if let active = payload["active"] as? Bool {
                 if active && !isMicStreaming {
-                    connectedServerIp = senderIp
+                    updateServerIp(senderIp)
                     startMicStreaming()
                 } else if !active && isMicStreaming {
                     stopMicStreaming()
@@ -760,9 +906,9 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
         isPartyHost = false
         isPartyJoined = true
         currentPartyHostIp = actualIp
-        connectedServerIp = actualIp
+        updateServerIp(actualIp)
 
-        startSpeakerPlayer(manualHost: actualIp)
+        startSpeakerPlayer(port: actualPort, manualHost: actualIp)
         sendPartyJoinAnnouncement(hostIp: actualIp)
         startPartyKeepAliveTimer()
     }
@@ -903,16 +1049,21 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
     private func startStatsTimer() {
         statsTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            let total = self.packetsReceived + self.packetsLost
-            self.packetLossPercent = total > 0 ? (Double(self.packetsLost) / Double(total)) * 100.0 : 0.0
+            self.stateLock.lock()
+            let curRx = self.packetsReceived
+            let curLost = self.packetsLost
+            let curMicTx = self.micPacketsSent
+            self.stateLock.unlock()
+
+            let total = curRx + curLost
+            self.packetLossPercent = total > 0 ? (Double(curLost) / Double(total)) * 100.0 : 0.0
             self.latencyMs = Double(self.bufferTargetMs)
 
-            // PPS computation
-            self.rxPps = Int(self.packetsReceived - self.lastRxPpsCount) * 3 // scaled to 1s
-            self.lastRxPpsCount = self.packetsReceived
+            self.rxPps = Int(curRx >= self.lastRxPpsCount ? (curRx - self.lastRxPpsCount) : 0) * 3
+            self.lastRxPpsCount = curRx
 
-            self.micTxPps = Int(self.micPacketsSent - self.lastMicPacketsCount) * 3
-            self.lastMicPacketsCount = self.micPacketsSent
+            self.micTxPps = Int(curMicTx >= self.lastMicPacketsCount ? (curMicTx - self.lastMicPacketsCount) : 0) * 3
+            self.lastMicPacketsCount = curMicTx
 
             // Sync atomic underruns to published property
             self.underrunCount = self.atomicUnderruns.value
@@ -923,7 +1074,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
                     "buffer_ms": self.latencyMs,
                     "target_ms": Double(self.bufferTargetMs),
                     "underruns": self.underrunCount,
-                    "lost_packets": self.packetsLost,
+                    "lost_packets": curLost,
                     "late_packets": 0,
                     "auto_mode": (self.bufferMode == "AUTO"),
                     "rx_pps": self.rxPps,
@@ -974,6 +1125,7 @@ public final class PhoneSpeakerEngine: NSObject, ObservableObject {
 
     private func closeSocket(_ sock: inout Int32) {
         if sock >= 0 {
+            shutdown(sock, SHUT_RDWR)
             close(sock)
             sock = -1
         }

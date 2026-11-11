@@ -10,6 +10,7 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
 
 ## Contents
 
+- [GitHub Packages & Release Downloads](#github-packages--release-downloads)
 - [Install and build](#install-and-build)
   - [1. Android Installation](#1-android-installation)
   - [2. Windows Installation](#2-windows-installation)
@@ -29,6 +30,21 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
 
 ---
 
+## GitHub Packages & Release Downloads
+
+> **Note on GitHub Packages vs Releases:** The **GitHub Packages** registry (`0 packages`) is reserved for language/container registries (Docker, npm, NuGet, Maven, RubyGems). All prebuilt PhoneSpeaker installers live in [**GitHub Releases**](https://github.com/HSAdib/PhoneSpeaker/releases) and [**GitHub Actions Artifacts**](https://github.com/HSAdib/PhoneSpeaker/actions).
+
+| Platform | Package / Installer | Local Build Status | GitHub Release (`v2.0.0`) Status | Direct Download / Build Source |
+|---|---|---|---|---|
+| **Windows 11** | `PhoneSpeaker.v2.exe` *(local: `PhoneSpeaker v2.exe`)* | Built (`34,812,399` bytes) | Hosted (`33.1 MB`, Nov 8, 2026) | [Download EXE](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker.v2.exe) |
+| **Android** | `PhoneSpeaker.v2.apk` *(local: `PhoneSpeaker v2.apk`)* | Built (`16,677,105` bytes) | Hosted (`13.6 MB`, Nov 8, 2026) | [Download APK](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker.v2.apk) |
+| **Linux** | `PhoneSpeaker-v2-Linux-Installer.run` | Built (`65,841` bytes) | Hosted (`47 KB`, Nov 8, 2026) | [Download `.run`](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-Linux-Installer.run) |
+| **macOS (Script)** | `PhoneSpeaker-v2-macOS-Installer.command` | Built (`66,918` bytes) | Pending upload | Included in repository root (`PhoneSpeaker-v2-macOS-Installer.command`) |
+| **macOS (DMG)** | `PhoneSpeaker-v2-macOS.dmg` | Built via Apple CI | Pending CI / Release upload | [GitHub Actions (`build_apple.yml`)](https://github.com/HSAdib/PhoneSpeaker/actions/workflows/build_apple.yml) |
+| **iOS (iPhone/iPad)** | `PhoneSpeaker-v2-iOS.ipa` *(unsigned)* | Built via Apple CI | Pending CI / Release upload | [GitHub Actions (`build_apple.yml`)](https://github.com/HSAdib/PhoneSpeaker/actions/workflows/build_apple.yml) |
+
+> **Current `v2.0.0` Note:** GitHub Release [`v2.0.0`](https://github.com/HSAdib/PhoneSpeaker/releases/tag/v2.0.0) still serves the earlier `2026-11-08` builds for Windows, Android, and Linux; push the updated binaries from the repo root (and run the Apple CI workflow) to publish the newer Party Mode + Apple deliverables under the next release tag.
+
 ## Install and build
 
 ---
@@ -42,7 +58,7 @@ It started as a fix for a laptop with a dead speaker and a dead headphone jack, 
 - **Supported Architectures:** Compatible with all **ARM64** (`arm64-v8a`), **ARMv7** (`armeabi-v7a`), **x86_64**, and **x86** devices (smartphones, tablets, Android TV, and emulators).
 
 **Download APK:**
-- 📦 **Direct Download:** [**`PhoneSpeaker v2.apk`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker%20v2.apk)
+- 📦 **Direct Download:** [**`PhoneSpeaker.v2.apk`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker.v2.apk) *(local build filename: `PhoneSpeaker v2.apk`)*
 - 🏷️ **GitHub Releases:** [View All Releases](https://github.com/HSAdib/PhoneSpeaker/releases)
 
 **How to Install on Phone:**
@@ -77,7 +93,7 @@ The APK is generated at `PhoneSpeakerAndroid/app/build/outputs/apk/debug/app-deb
 - **Windows 11** & **Windows 10** (64-bit).
 
 **Download Windows Binary:**
-- 📦 **Direct Download:** [**`PhoneSpeaker v2.exe`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker%20v2.exe)
+- 📦 **Direct Download:** [**`PhoneSpeaker.v2.exe`**](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker.v2.exe) *(local build filename: `PhoneSpeaker v2.exe`)*
 - 🏷️ **GitHub Releases:** [View All Releases](https://github.com/HSAdib/PhoneSpeaker/releases)
 
 **How to Run:**
@@ -273,7 +289,7 @@ Select your connected iPhone or iPad and press **Cmd + R** to run!
 python phonespeaker-pc/tests/verify_pc.py
 ```
 
-Runs nine checks: adapter filtering, PCM packet size, the Opus encoder, silence pacing, audio capture opening, sample-format conversion, a UDP localhost integration test, protocol v2 settings sync, and system-volume access. Capture tests need a working audio device, so run them on a machine with sound.
+Runs eleven checks: adapter filtering, PCM packet size, the Opus encoder, silence pacing, audio capture opening, sample-format conversion, a UDP localhost integration test, protocol v2.0 bidirectional settings sync, system-volume access, burst UDP packet reception, and multi-target Party Mode fan-out. Capture tests need a working audio device, so run them on a machine with sound.
 
 ### Firewall
 
@@ -330,7 +346,7 @@ sudo firewall-cmd --add-port=5004/udp --add-port=5005/udp --add-port=5006/udp --
 - **System volume sync:** optionally follows the Windows sound bar or Linux default sink volume.
 
 **Desktop app**
-- Black-and-white Tk interface with three tabs: Stream / Roles, Audio & Buffer, Virtual Device.
+- Black-and-white Tk interface with four tabs: `Stream / Roles`, `🎉 Party Mode`, `Audio & Buffer`, `Virtual Device (Win+Ctrl+V)`.
 - Virtual-adapter filtering (VirtualBox `192.168.56.x`, VMware, Hyper-V, WSL and similar) so you always see your real LAN IP.
 - One-click firewall rules, system-tray mode, built-in help dialog.
 - High process priority and 1 ms timer resolution on Windows.
@@ -411,10 +427,10 @@ Set the capture source in the **Virtual Device** tab. On Windows, making a virtu
 
 ### Files and logs
 
-| | Windows | Linux |
-|---|---|---|
-| Config | `%APPDATA%\PhoneSpeaker\config.json` | `~/.config/PhoneSpeaker/config.json` |
-| Log | `%APPDATA%\PhoneSpeaker\phonespeaker.log` | `~/.config/PhoneSpeaker/phonespeaker.log` |
+| | Windows | Linux | macOS |
+|---|---|---|---|
+| Config | `%APPDATA%\PhoneSpeaker\config.json` | `~/.config/PhoneSpeaker/config.json` | `~/Library/Application Support/PhoneSpeaker/config.json` |
+| Log | `%APPDATA%\PhoneSpeaker\phonespeaker.log` | `~/.config/PhoneSpeaker/phonespeaker.log` | `~/Library/Application Support/PhoneSpeaker/phonespeaker.log` |
 
 ---
 
@@ -464,9 +480,9 @@ PCM16 uses 5 ms frames: 240 samples per channel, a 960-byte payload, 972 bytes o
 {
   "type": "CONFIG_SYNC",
   "rev": 12,
+  "sync_id": 1731320000,
   "direction": "PC_TO_PHONE",
-  "output_targets": "PHONE_ONLY",
-  "pc_sync_delay_ms": 25,
+  "audio_profile": "BALANCED",
   "codec": 1,
   "opus_bitrate_kbps": 128,
   "frame_ms": 5,
@@ -490,36 +506,47 @@ PCM16 uses 5 ms frames: 240 samples per channel, a 960-byte payload, 972 bytes o
 
 ```
 .
-├── install_linux.sh                 # Linux: system deps + build + install
-├── install_apk.ps1                  # Windows: adb install helper for the APK
+├── .github/workflows/build_apple.yml      # GitHub Actions CI for macOS .dmg & iOS .ipa
+├── install_linux.sh                       # Linux: system deps + build + install
+├── install_apk.ps1                        # Windows: adb install helper for the APK
+├── PhoneSpeaker-v2-macOS-Installer.command# macOS interactive source/app installer
 ├── phonespeaker-pc/
-│   ├── build_exe.py                 # Windows .exe (PyInstaller) + Linux .run bundle
-│   ├── build_linux.py               # Linux binary + .run installer
+│   ├── build_exe.py                       # Windows .exe (PyInstaller) + Linux/macOS dispatch
+│   ├── build_linux.py                     # Linux binary + .run installer
+│   ├── build_macos.py                     # macOS .app / .dmg / .command builder
 │   ├── src/
-│   │   ├── main.py                  # entry point
-│   │   ├── ui.py                    # Tk interface, sync engine, tray, help
-│   │   ├── audio_capture.py         # WASAPI loopback / parec capture, resampling
-│   │   ├── audio_output.py          # PC playback, phone-mic receiver
-│   │   ├── network.py               # UDP sender, control listener, adapter filtering
-│   │   ├── protocol.py              # header, ports, default config
-│   │   ├── opus_codec.py            # ctypes libopus encoder/decoder
-│   │   ├── virtual_device.py        # VB-CABLE (Windows), pactl virtual devices (Linux)
-│   │   ├── win_volume.py            # system volume sync (CoreAudio / pactl)
-│   │   ├── firewall.py              # netsh / ufw / firewalld / iptables
-│   │   └── config.py                # per-OS config and logging
-│   ├── tests/                       # verify_pc.py, capture_smoke_test.py
-│   └── vendor/get_opus.py           # fetches opus.dll for Windows builds
-└── PhoneSpeakerAndroid/
-    └── app/src/main/
-        ├── cpp/                     # Oboe engine, jitter buffer, Opus wrapper, JNI
-        ├── java/com/hasan/phonespeaker/
-        │   ├── MainActivity.kt      # Player / Server / Settings tabs
-        │   ├── AudioStreamService.kt# foreground service, locks, audio focus
-        │   ├── ControlChannel.kt    # beacon, stats, settings sync
-        │   ├── MicStreamer.kt       # phone microphone to PC
-        │   ├── LatencyGraphView.kt  # live delay graph
-        │   └── AudioNative.kt       # JNI bindings
-        └── res/                     # black-and-white layouts and theme
+│   │   ├── main.py                        # entry point
+│   │   ├── ui.py                          # Tk interface, Party Mode, sync engine, tray
+│   │   ├── audio_capture.py               # WASAPI loopback / parec / CoreAudio capture
+│   │   ├── audio_output.py                # PC playback, phone-mic receiver
+│   │   ├── network.py                     # UDP sender, control listener, adapter filtering
+│   │   ├── protocol.py                    # header, ports, default config
+│   │   ├── opus_codec.py                  # ctypes libopus encoder/decoder
+│   │   ├── virtual_device.py              # VB-CABLE (Win), pactl (Linux), BlackHole (macOS)
+│   │   ├── win_volume.py                  # system volume sync (CoreAudio / pactl / osascript)
+│   │   ├── firewall.py                    # netsh / ufw / firewalld / iptables / pfctl
+│   │   └── config.py                      # per-OS config and logging
+│   ├── tests/                             # verify_pc.py, capture_smoke_test.py
+│   └── vendor/get_opus.py                 # fetches opus.dll for Windows builds
+├── PhoneSpeakerAndroid/
+│   └── app/src/main/
+│       ├── cpp/                           # Oboe engine, jitter buffer, Opus wrapper, JNI, relay
+│       ├── java/com/hasan/phonespeaker/
+│       │   ├── MainActivity.kt            # main UI, Party Mode QR host/join/extend, sync
+│       │   ├── AudioStreamService.kt      # foreground service, locks, audio focus
+│       │   ├── ControlChannel.kt          # beacon, stats, settings sync
+│       │   ├── MicStreamer.kt             # phone microphone to PC
+│       │   ├── LatencyGraphView.kt        # live delay graph
+│       │   └── AudioNative.kt             # JNI bindings
+│       └── res/                           # black-and-white layouts and theme
+└── PhoneSpeakeriOS/
+    ├── project.yml                        # XcodeGen spec for PhoneSpeaker iOS
+    └── PhoneSpeaker/
+        ├── PhoneSpeakerApp.swift          # SwiftUI app entry point
+        ├── ContentView.swift              # Stream, Party Mode, and Settings UI
+        ├── PhoneSpeakerEngine.swift       # CoreAudio engine, Opus, UDP Rx/Tx, Party relay
+        ├── QRScannerView.swift            # AVFoundation QR scanner for Party Mode
+        └── Info.plist                     # microphone, camera & local network permissions
 ```
 
 ---
@@ -553,8 +580,8 @@ Don't run the v1 and v2 phone apps at the same time. Both listen on UDP 5004 and
 
 - There is **no authentication or encryption**. Anyone on the same network who can reach the ports can send audio or settings to either device. Use it on networks you trust, not on public Wi-Fi.
 - Latency depends on your network and your phone's audio hardware. Expect tens of milliseconds on a clean 5 GHz link or USB tether, and more over Bluetooth tethering.
-- The desktop app is built for Windows 11 and Linux with PipeWire or PulseAudio. macOS isn't supported.
-- Windows virtual-device installation uses the third-party VB-CABLE driver, downloaded from vb-audio.com.
+- The desktop app supports Windows 11, Linux (PipeWire or PulseAudio), and macOS (with BlackHole virtual audio driver for loopback capture); mobile clients support Android and iOS.
+- Windows virtual-device installation uses the third-party VB-CABLE driver, downloaded from vb-audio.com; macOS loopback capture uses BlackHole (`blackhole-2ch`).
 
 ---
 

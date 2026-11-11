@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 public struct ContentView: View {
     @StateObject private var engine = PhoneSpeakerEngine.shared

@@ -13,15 +13,25 @@ PhoneSpeaker turns an Android or iOS phone into a wireless speaker for a Windows
 - Two-way settings synchronization between PC and phone, and live telemetry on both sides.
 - Provides a virtual microphone route for chat, meeting, and recording apps.
 
-## Downloads and installation
+## Packages, downloads and installation
 
-Get the latest installers from the [GitHub Releases page](https://github.com/HSAdib/PhoneSpeaker/releases):
+> **GitHub Packages vs Releases:** The **GitHub Packages** tab (`0` packages) only stores language/container registries; PhoneSpeaker's prebuilt binaries are distributed via [**GitHub Releases**](https://github.com/HSAdib/PhoneSpeaker/releases) and [**GitHub Actions**](https://github.com/HSAdib/PhoneSpeaker/actions/workflows/build_apple.yml).
 
-- **Android:** `PhoneSpeaker v2.apk` (Android 8.0 / API 26 or newer).
-- **iOS:** `PhoneSpeaker-v2-iOS.ipa` (iOS 16.0 or newer; sideload with AltStore / Sideloadly).
-- **Windows:** `PhoneSpeaker v2.exe` (Windows 10 or 11, 64-bit; standalone).
-- **Linux:** `PhoneSpeaker-v2-Linux-Installer.run`, or use the install script below. Ubuntu, Linux Mint, Arch, Debian, and Fedora are supported; PipeWire and PulseAudio are supported.
-- **macOS:** `PhoneSpeaker-v2-macOS-Installer.command` or `PhoneSpeaker-v2-macOS.dmg` (macOS 12.0+ Apple Silicon & Intel).
+| Platform | Package / Installer | Local Build | GitHub Release (`v2.0.0`) | Link / Source |
+|---|---|---|---|---|
+| **Android** | `PhoneSpeaker.v2.apk` *(local: `PhoneSpeaker v2.apk`)* | `16,677,105` bytes | `13.6 MB` (`2026-11-08`) | [Download APK](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker.v2.apk) |
+| **Windows** | `PhoneSpeaker.v2.exe` *(local: `PhoneSpeaker v2.exe`)* | `34,812,399` bytes | `33.1 MB` (`2026-11-08`) | [Download EXE](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker.v2.exe) |
+| **Linux** | `PhoneSpeaker-v2-Linux-Installer.run` | `65,841` bytes | `47 KB` (`2026-11-08`) | [Download `.run`](https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-Linux-Installer.run) |
+| **macOS (Script)** | `PhoneSpeaker-v2-macOS-Installer.command` | `66,918` bytes | Pending upload | Repo root (`PhoneSpeaker-v2-macOS-Installer.command`) |
+| **macOS (DMG)** | `PhoneSpeaker-v2-macOS.dmg` | Apple CI | Pending CI / Release | [Apple CI Workflow](https://github.com/HSAdib/PhoneSpeaker/actions/workflows/build_apple.yml) |
+| **iOS** | `PhoneSpeaker-v2-iOS.ipa` *(unsigned)* | Apple CI | Pending CI / Release | [Apple CI Workflow](https://github.com/HSAdib/PhoneSpeaker/actions/workflows/build_apple.yml) |
+
+Platform notes:
+- **Android:** Android 8.0 / API 26 or newer.
+- **iOS:** iOS 16.0 or newer; sideload with AltStore / Sideloadly.
+- **Windows:** Windows 10 or 11, 64-bit; standalone.
+- **Linux:** Ubuntu, Linux Mint, Arch, Debian, and Fedora (PipeWire / PulseAudio), or use the one-line install script below.
+- **macOS:** macOS 12.0+ Apple Silicon & Intel (`PhoneSpeaker-v2-macOS-Installer.command` or `PhoneSpeaker-v2-macOS.dmg`).
 
 For a quick Linux installation, run:
 

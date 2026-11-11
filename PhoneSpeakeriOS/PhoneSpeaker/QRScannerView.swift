@@ -6,7 +6,9 @@
 //
 
 import SwiftUI
+import UIKit
 import AVFoundation
+import AudioToolbox
 import CoreImage.CIFilterBuiltins
 
 // MARK: - SwiftUI Camera QR Scanner
