@@ -55,6 +55,10 @@ def main() -> None:
     _set_timer_resolution(1)
     _elevate_priority()
 
+    # On Linux: route audio through a virtual null sink so only the phone plays
+    from win_volume import _linux_set_pc_mute
+    _linux_set_pc_mute(True)
+
     app_cfg = cfg_module.load()
 
     try:
@@ -63,6 +67,7 @@ def main() -> None:
     except Exception as exc:
         logger.critical("Fatal UI error: %s", exc, exc_info=True)
     finally:
+        _linux_set_pc_mute(False)
         _clear_timer_resolution(1)
         logger.info("PhoneSpeaker PC exiting")
 

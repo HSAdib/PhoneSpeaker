@@ -1,6 +1,6 @@
 """
 win_volume.py — Cached, zero-leak two-way synchronization with the Windows Taskbar Sound Bar
-(via ctypes CoreAudio IAudioEndpointVolume COM interface) and Linux pactl.
+(via ctypes CoreAudio IAudioEndpointVolume COM interface) and Linux pactl/wpctl.
 """
 
 import ctypes
@@ -277,3 +277,54 @@ def set_system_volume_and_mute(volume_scalar: float, muted: Optional[bool] = Non
             return False
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# Linux virtual-sink routing: silence PC speakers, phone-only audio
+# ---------------------------------------------------------------------------
+
+def _linux_set_pc_mute(mute: bool) -> bool:
+    """Toggle PC speaker silence on Linux via a PulseAudio/PipeWire null sink.
+
+    When *mute* is True, creates a virtual 'PhoneSpeaker_Only' sink and sets it
+    as default so the .monitor capture stream feeds the phone while physical
+    speakers stay silent.  When False, removes the virtual sink so audio returns
+    to the hardware speakers.
+    """
+    if not _IS_LINUX or not shutil.which("pactl"):
+        return False
+    try:
+        if mute:
+            # Check if PhoneSpeaker_Only already exists
+            sinks = subprocess.run(
+                ["pactl", "list", "short", "sinks"],
+                capture_output=True, text=True, timeout=2,
+            ).stdout
+            if "PhoneSpeaker_Only" not in sinks:
+                subprocess.run(
+                    ["pactl", "load-module", "module-null-sink",
+                     "sink_name=PhoneSpeaker_Only",
+                     "sink_properties=device.description=PhoneSpeaker_Only"],
+                    capture_output=True, timeout=2,
+                )
+            subprocess.run(
+                ["pactl", "set-default-sink", "PhoneSpeaker_Only"],
+                capture_output=True, timeout=2,
+            )
+            subprocess.run(
+                ["pactl", "set-sink-mute", "PhoneSpeaker_Only", "0"],
+                capture_output=True, timeout=2,
+            )
+            subprocess.run(
+                ["pactl", "set-sink-volume", "PhoneSpeaker_Only", "100%"],
+                capture_output=True, timeout=2,
+            )
+        else:
+            subprocess.run(
+                ["pactl", "unload-module", "module-null-sink"],
+                capture_output=True, timeout=2,
+            )
+        return True
+    except Exception:
+        logger.warning("_linux_set_pc_mute(%s) failed", mute, exc_info=True)
+        return False
