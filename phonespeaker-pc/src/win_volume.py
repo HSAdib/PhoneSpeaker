@@ -4,7 +4,12 @@ win_volume.py — Cached, zero-leak two-way synchronization with the Windows Tas
 """
 
 import ctypes
-from ctypes import POINTER, Structure, byref, c_float, c_int, c_uint, c_void_p, HRESULT
+from ctypes import POINTER, Structure, byref, c_float, c_int, c_uint, c_void_p
+
+try:
+    from ctypes import HRESULT
+except ImportError:
+    from ctypes import c_long as HRESULT
 import logging
 import re
 import shutil
@@ -174,6 +179,20 @@ def get_system_volume_and_mute() -> Optional[Tuple[float, bool]]:
             muted = "yes" in res_m.stdout.lower()
             return min(2.0, max(0.0, vol)), muted
         except Exception:
+            pass
+
+    if _IS_LINUX and shutil.which("wpctl"):
+        try:
+            res = subprocess.run(
+                ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+                capture_output=True, text=True, timeout=2
+            )
+            if res.returncode == 0 and res.stdout:
+                m = re.search(r"([0-9.]+)", res.stdout)
+                vol = float(m.group(1)) if m else 1.0
+                muted = "MUTED" in res.stdout.upper()
+                return max(0.0, min(2.0, vol)), muted
+        except Exception:
             return None
 
     if _IS_MAC and shutil.which("osascript"):
@@ -224,6 +243,23 @@ def set_system_volume_and_mute(volume_scalar: float, muted: Optional[bool] = Non
             subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{pct}%"], timeout=1)
             if muted is not None:
                 subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if muted else "0"], timeout=1)
+            return True
+        except Exception:
+            pass
+
+    if _IS_LINUX and shutil.which("wpctl"):
+        try:
+            if volume_scalar is not None:
+                pct = f"{int(round(max(0.0, min(2.0, float(volume_scalar))) * 100))}%"
+                subprocess.run(
+                    ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", pct],
+                    capture_output=True, timeout=2
+                )
+            if muted is not None:
+                subprocess.run(
+                    ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if muted else "0"],
+                    capture_output=True, timeout=2
+                )
             return True
         except Exception:
             return False
