@@ -30,14 +30,15 @@ if [ -f "PhoneSpeaker-v2-Linux-Installer.run" ]; then
     cp -f "PhoneSpeaker-v2-Linux-Installer.run" "$INSTALLER"
 else
     echo "Downloading PhoneSpeaker v2.0 Linux installer from GitHub..."
+    CACHE_BUST="?t=$(date +%s)"
     PRIMARY_URL="https://github.com/HSAdib/PhoneSpeaker/releases/latest/download/PhoneSpeaker-v2-Linux-Installer.run"
     FALLBACK_URL="https://github.com/HSAdib/PhoneSpeaker/releases/download/v2.0.0/PhoneSpeaker-v2-Linux-Installer.run"
     RAW_URL="https://raw.githubusercontent.com/HSAdib/PhoneSpeaker/main/PhoneSpeaker-v2-Linux-Installer.run"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -sSL -f -o "$INSTALLER" "$PRIMARY_URL" || curl -sSL -f -o "$INSTALLER" "$FALLBACK_URL" || curl -sSL -f -o "$INSTALLER" "$RAW_URL"
+        curl -sSL -f -o "$INSTALLER" "${PRIMARY_URL}${CACHE_BUST}" || curl -sSL -f -o "$INSTALLER" "${FALLBACK_URL}${CACHE_BUST}" || curl -sSL -f -o "$INSTALLER" "${RAW_URL}${CACHE_BUST}"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --show-progress -O "$INSTALLER" "$PRIMARY_URL" || wget -q --show-progress -O "$INSTALLER" "$FALLBACK_URL" || wget -q --show-progress -O "$INSTALLER" "$RAW_URL"
+        wget -q --show-progress -O "$INSTALLER" "${PRIMARY_URL}${CACHE_BUST}" || wget -q --show-progress -O "$INSTALLER" "${FALLBACK_URL}${CACHE_BUST}" || wget -q --show-progress -O "$INSTALLER" "${RAW_URL}${CACHE_BUST}"
     else
         echo "Error: neither curl nor wget was found. Please install curl or wget."
         exit 1

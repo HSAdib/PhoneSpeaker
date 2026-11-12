@@ -181,14 +181,14 @@ echo "=========================================================="
 # 1. Ensure system dependencies (Arch / Debian / Ubuntu / Fedora)
 if command -v pacman >/dev/null 2>&1; then
     echo "[Arch Linux] Installing dependencies via pacman..."
-    sudo pacman -S --needed --noconfirm python tk opus libpulse portaudio python-numpy python-psutil python-pillow
+    sudo pacman -S --needed --noconfirm python python-pip tk opus libpulse portaudio python-numpy python-psutil python-pillow python-qrcode python-pyaudio
 elif command -v apt-get >/dev/null 2>&1; then
     echo "[Debian/Ubuntu] Installing dependencies via apt..."
     sudo apt-get update
-    sudo apt-get install -y python3 python3-venv python3-tk python3-pip python3-numpy python3-psutil python3-pil libopus0 pulseaudio-utils portaudio19-dev
+    sudo apt-get install -y python3 python3-venv python3-tk python3-pip python3-numpy python3-psutil python3-pil python3-qrcode python3-pyaudio libopus0 pulseaudio-utils portaudio19-dev
 elif command -v dnf >/dev/null 2>&1; then
     echo "[Fedora] Installing dependencies via dnf..."
-    sudo dnf install -y python3 python3-tkinter python3-pip python3-numpy python3-psutil python3-pillow opus pulseaudio-utils portaudio-devel
+    sudo dnf install -y python3 python3-tkinter python3-pip python3-numpy python3-psutil python3-pillow python3-qrcode python3-pyaudio opus pulseaudio-utils portaudio-devel
 fi
 
 INSTALL_DIR="$HOME/.local/opt/phonespeaker"
@@ -237,7 +237,24 @@ echo " SUCCESS! PhoneSpeaker v2.0 Studio installed!"
 echo " Command: phonespeaker"
 echo " Launching PhoneSpeaker v2.0 Studio now..."
 echo "=========================================================="
+
+# Pre-launch health check: verify critical Python modules are importable
+if ! "$INSTALL_DIR/phonespeaker-pc/.venv-linux/bin/python" -c "import tkinter, numpy, psutil, PIL" 2>/dev/null; then
+    echo "WARNING: Missing core Python module in .venv-linux, retrying with system python3..."
+    sed -i 's|".*/phonespeaker-pc/.venv-linux/bin/python"|python3|g' "$INSTALL_DIR/PhoneSpeaker-v2"
+fi
+
 nohup "$INSTALL_DIR/PhoneSpeaker-v2" >/dev/null 2>&1 &
+LAUNCH_PID=$!
+sleep 1
+if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    echo ""
+    echo "ERROR: PhoneSpeaker exited immediately after launch. Startup log:"
+    echo "------------------------------------------------------------------"
+    cat "$HOME/.config/PhoneSpeaker/startup.log" 2>/dev/null || echo "(no log found)"
+    echo "------------------------------------------------------------------"
+    echo "Please check the errors above and try running: phonespeaker"
+fi
 exit 0
 __ARCHIVE_BELOW__
 """.replace("\r\n", "\n").encode("utf-8")
