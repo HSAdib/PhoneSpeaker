@@ -212,7 +212,28 @@ cp -f "$INSTALL_DIR/phonespeaker-pc/vendor/app_icon.png" "$ICON_DIR/phonespeaker
 cat > "$INSTALL_DIR/PhoneSpeaker-v2" <<'EOF'
 #!/usr/bin/env bash
 mkdir -p "$HOME/.config/PhoneSpeaker"
-exec "$HOME/.local/opt/phonespeaker/phonespeaker-pc/.venv-linux/bin/python" "$HOME/.local/opt/phonespeaker/phonespeaker-pc/src/main.py" "$@" >>"$HOME/.config/PhoneSpeaker/startup.log" 2>&1
+
+# On Linux with PipeWire/PulseAudio: create a silent virtual sink so
+# audio streams to the phone only (PC speakers stay silent).
+MOD_ID=""
+if command -v pactl >/dev/null 2>&1; then
+    pactl unload-module module-null-sink 2>/dev/null || true
+    MOD_ID=$(pactl load-module module-null-sink sink_name=PhoneSpeaker_Only sink_properties=device.description="PhoneSpeaker_Only" 2>/dev/null)
+    pactl set-default-sink PhoneSpeaker_Only 2>/dev/null || true
+    pactl set-sink-mute PhoneSpeaker_Only 0 2>/dev/null || true
+    pactl set-sink-volume PhoneSpeaker_Only 100% 2>/dev/null || true
+fi
+
+cleanup() {
+    if [ -n "$MOD_ID" ]; then
+        pactl unload-module "$MOD_ID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT INT TERM
+
+PYTHON="$HOME/.local/opt/phonespeaker/phonespeaker-pc/.venv-linux/bin/python"
+[ -x "$PYTHON" ] || PYTHON=python3
+"$PYTHON" "$HOME/.local/opt/phonespeaker/phonespeaker-pc/src/main.py" "$@" >>"$HOME/.config/PhoneSpeaker/startup.log" 2>&1
 EOF
 chmod +x "$INSTALL_DIR/PhoneSpeaker-v2"
 ln -sf "$INSTALL_DIR/PhoneSpeaker-v2" "$BIN_DIR/phonespeaker"
@@ -240,8 +261,7 @@ echo "=========================================================="
 
 # Pre-launch health check: verify critical Python modules are importable
 if ! "$INSTALL_DIR/phonespeaker-pc/.venv-linux/bin/python" -c "import tkinter, numpy, psutil, PIL" 2>/dev/null; then
-    echo "WARNING: Missing core Python module in .venv-linux, retrying with system python3..."
-    sed -i 's|".*/phonespeaker-pc/.venv-linux/bin/python"|python3|g' "$INSTALL_DIR/PhoneSpeaker-v2"
+    echo "INFO: venv Python missing some modules; launcher will auto-fallback to system python3."
 fi
 
 nohup "$INSTALL_DIR/PhoneSpeaker-v2" >/dev/null 2>&1 &
